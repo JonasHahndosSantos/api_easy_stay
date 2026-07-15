@@ -1,0 +1,6 @@
+@ApiEasyStay_HostAddress = http://localhost:5191
+
+GET {{ApiEasyStay_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
