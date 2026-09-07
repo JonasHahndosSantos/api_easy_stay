@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="84e230fb-199d-49f6-90f1-ecbf3657c76c" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/Properties/Data/AppDbContext.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ApiEasyStay.csproj" beforeDir="false" afterPath="$PROJECT_DIR$/ApiEasyStay.csproj" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Program.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Program.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Properties/Controllers/BaseController.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Properties/Controllers/BaseController.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Properties/Entities/v1/ConfiguracaoSistemaEntity.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Properties/Entities/v1/ConfiguracaoSistemaEntity.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Properties/Entities/v1/PerfilEntity.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Properties/Entities/v1/ConfigPerfilEntity.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Properties/Entities/v1/PerfilPermissaoEntity.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Properties/Entities/v1/ConfigPerfilPermissaoEntity.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Properties/Entities/v1/PermissaoEntity.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Properties/Entities/v1/ConfigPermissaoEntity.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Properties/Entities/v1/UsuarioEntity.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Properties/Entities/v1/UsuarioEntity.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Properties/Repositorys/BaseRepository.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Properties/Data/Repositorys/BaseRepository.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Properties/Repositorys/IBaseRepository.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Properties/Data/Repositorys/IBaseRepository.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/appsettings.json" beforeDir="false" afterPath="$PROJECT_DIR$/appsettings.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/Debug/net10.0/ApiEasyStay.deps.json" beforeDir="false" afterPath="$PROJECT_DIR$/bin/Debug/net10.0/ApiEasyStay.deps.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/Debug/net10.0/ApiEasyStay.dll" beforeDir="false" afterPath="$PROJECT_DIR$/bin/Debug/net10.0/ApiEasyStay.dll" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/Debug/net10.0/ApiEasyStay.exe" beforeDir="false" afterPath="$PROJECT_DIR$/bin/Debug/net10.0/ApiEasyStay.exe" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/Debug/net10.0/ApiEasyStay.pdb" beforeDir="false" afterPath="$PROJECT_DIR$/bin/Debug/net10.0/ApiEasyStay.pdb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/Debug/net10.0/ApiEasyStay.runtimeconfig.json" beforeDir="false" afterPath="$PROJECT_DIR$/bin/Debug/net10.0/ApiEasyStay.runtimeconfig.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/Debug/net10.0/appsettings.json" beforeDir="false" afterPath="$PROJECT_DIR$/bin/Debug/net10.0/appsettings.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/ApiEasyStay.csproj.nuget.dgspec.json" beforeDir="false" afterPath="$PROJECT_DIR$/obj/ApiEasyStay.csproj.nuget.dgspec.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/ApiEasyStay.csproj.nuget.g.props" beforeDir="false" afterPath="$PROJECT_DIR$/obj/ApiEasyStay.csproj.nuget.g.props" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/ApiEasyStay.csproj.nuget.g.targets" beforeDir="false" afterPath="$PROJECT_DIR$/obj/ApiEasyStay.csproj.nuget.g.targets" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.AssemblyInfo.cs" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.AssemblyInfo.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.AssemblyInfoInputs.cache" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.AssemblyInfoInputs.cache" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.GeneratedMSBuildEditorConfig.editorconfig" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.GeneratedMSBuildEditorConfig.editorconfig" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.assets.cache" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.assets.cache" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.csproj.AssemblyReference.cache" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.csproj.AssemblyReference.cache" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.csproj.CoreCompileInputs.cache" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.csproj.CoreCompileInputs.cache" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.csproj.FileListAbsolute.txt" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.csproj.FileListAbsolute.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.dll" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.dll" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.genruntimeconfig.cache" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.genruntimeconfig.cache" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.pdb" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/ApiEasyStay.pdb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/apphost.exe" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/apphost.exe" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/ref/ApiEasyStay.dll" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/ref/ApiEasyStay.dll" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/refint/ApiEasyStay.dll" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/refint/ApiEasyStay.dll" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/rjsmcshtml.dswa.cache.json" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/rjsmcshtml.dswa.cache.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/rjsmrazor.dswa.cache.json" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/rjsmrazor.dswa.cache.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/Debug/net10.0/rpswa.dswa.cache.json" beforeDir="false" afterPath="$PROJECT_DIR$/obj/Debug/net10.0/rpswa.dswa.cache.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/project.assets.json" beforeDir="false" afterPath="$PROJECT_DIR$/obj/project.assets.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/project.nuget.cache" beforeDir="false" afterPath="$PROJECT_DIR$/obj/project.nuget.cache" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/project.packagespec.json" beforeDir="false" afterPath="$PROJECT_DIR$/obj/project.packagespec.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/rider.project.model.nuget.info" beforeDir="false" afterPath="$PROJECT_DIR$/obj/rider.project.model.nuget.info" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/obj/rider.project.restore.info" beforeDir="false" afterPath="$PROJECT_DIR$/obj/rider.project.restore.info" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 7
+}</component>
+  <component name="ProjectId" id="3GYtYTvqElZYqFaYfbzK2Sczi7t" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "main",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "C:/Users/Jonas/Documents/GitHub/ApiEasyStay"
+  },
+  "keyToStringList": {
+    "DatabaseDriversLRU": [
+      "azure",
+      "postgresql"
+    ]
+  }
+}]]></component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="84e230fb-199d-49f6-90f1-ecbf3657c76c" name="Changes" comment="" />
+      <created>1784160378408</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1784160378408</updated>
+    </task>
+    <servers />
+  </component>
+</project>

@@ -14,5 +14,5 @@ public class UsuarioEntity : BaseEntity
 
     public Guid PerfilId { get; set; }
 
-    public PerfilEntity? Perfil { get; set; }
+    public ConfigPerfilEntity? Perfil { get; set; }
 }

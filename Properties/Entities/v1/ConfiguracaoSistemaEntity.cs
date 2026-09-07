@@ -1,5 +1,3 @@
-using ApiEasyStay.Properties.Entities;
-
 namespace ApiEasyStay.Properties.Entities.v1;
 
 public class ConfiguracaoSistemaEntity : BaseEntity
