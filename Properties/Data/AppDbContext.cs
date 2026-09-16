@@ -115,6 +115,13 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
+        modelBuilder.Entity<SincronizacaoEntity>(entity =>
+        {
+            entity.HasIndex(x => new { x.EspacoId, x.EventoId }).IsUnique();
+            entity.HasIndex(x => new { x.EspacoId, x.DataHoraCriado });
+            entity.HasIndex(x => new { x.EspacoId, x.Entidade, x.EntidadeId });
+        });
+
         modelBuilder.Entity<ConfiguracaoSistemaEntity>(entity =>
         {
             entity.HasOne(x => x.Empresa)

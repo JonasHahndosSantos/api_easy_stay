@@ -6,6 +6,21 @@ namespace ApiEasyStay.Properties.Dtos.v1;
 public class SincronizacaoDto : BaseDto
 {
     [Required]
+    [JsonPropertyName("espaco_id")]
+    public Guid EspacoId { get; set; }
+
+    [Required]
+    [JsonPropertyName("dispositivo_id")]
+    public Guid DispositivoId { get; set; }
+
+    [JsonPropertyName("nome_dispositivo")]
+    public string? NomeDispositivo { get; set; }
+
+    [Required]
+    [JsonPropertyName("evento_id")]
+    public Guid EventoId { get; set; }
+
+    [Required]
     [JsonPropertyName("entidade")]
     public string Entidade { get; set; } = string.Empty;
 
@@ -22,4 +37,7 @@ public class SincronizacaoDto : BaseDto
     
     [JsonPropertyName("data_hora_sincronizado")]
     public DateTime? DataHoraSincronizado { get; set; }
+
+    [JsonPropertyName("forcado")]
+    public bool Forcado { get; set; }
 }
