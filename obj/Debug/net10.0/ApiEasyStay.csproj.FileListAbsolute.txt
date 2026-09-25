@@ -124,3 +124,12 @@ C:\Users\Jonas\Documents\GitHub\ApiEasyStay\bin\Debug\net10.0\Microsoft.VisualSt
 C:\Users\Jonas\Documents\GitHub\ApiEasyStay\bin\Debug\net10.0\EFCore.NamingConventions.dll
 C:\Users\Jonas\Documents\GitHub\ApiEasyStay\bin\Debug\net10.0\Mapster.dll
 C:\Users\Jonas\Documents\GitHub\ApiEasyStay\bin\Debug\net10.0\Mapster.Core.dll
+C:\Users\Jonas\Documents\GitHub\ApiEasyStay\bin\Debug\net10.0\Microsoft.Extensions.Caching.Abstractions.dll
+C:\Users\Jonas\Documents\GitHub\ApiEasyStay\bin\Debug\net10.0\Microsoft.Extensions.Caching.Memory.dll
+C:\Users\Jonas\Documents\GitHub\ApiEasyStay\bin\Debug\net10.0\Microsoft.Extensions.Configuration.Abstractions.dll
+C:\Users\Jonas\Documents\GitHub\ApiEasyStay\bin\Debug\net10.0\Microsoft.Extensions.DependencyInjection.dll
+C:\Users\Jonas\Documents\GitHub\ApiEasyStay\bin\Debug\net10.0\Microsoft.Extensions.DependencyInjection.Abstractions.dll
+C:\Users\Jonas\Documents\GitHub\ApiEasyStay\bin\Debug\net10.0\Microsoft.Extensions.Logging.dll
+C:\Users\Jonas\Documents\GitHub\ApiEasyStay\bin\Debug\net10.0\Microsoft.Extensions.Logging.Abstractions.dll
+C:\Users\Jonas\Documents\GitHub\ApiEasyStay\bin\Debug\net10.0\Microsoft.Extensions.Options.dll
+C:\Users\Jonas\Documents\GitHub\ApiEasyStay\bin\Debug\net10.0\Microsoft.Extensions.Primitives.dll

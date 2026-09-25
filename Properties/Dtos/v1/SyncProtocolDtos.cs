@@ -3,6 +3,15 @@ using System.Text.Json.Serialization;
 
 namespace ApiEasyStay.Properties.Dtos.v1;
 
+public sealed class SyncRegisterRequestDto
+{
+    [JsonPropertyName("espacoId")]
+    public Guid EspacoId { get; set; }
+
+    [JsonPropertyName("nomeDispositivo")]
+    public string? NomeDispositivo { get; set; }
+}
+
 public sealed class SyncPushRequestDto
 {
     [JsonPropertyName("espacoId")]
@@ -16,6 +25,9 @@ public sealed class SyncPushRequestDto
 
     [JsonPropertyName("eventos")]
     public List<SyncPushEventDto> Eventos { get; set; } = [];
+
+    [JsonPropertyName("atomico")]
+    public bool Atomico { get; set; }
 }
 
 public sealed class SyncPushEventDto
@@ -85,6 +97,9 @@ public sealed class SyncPullResponseDto
 
     [JsonPropertyName("cursor")]
     public string? Cursor { get; set; }
+
+    [JsonPropertyName("hasMore")]
+    public bool HasMore { get; set; }
 }
 
 public sealed class SyncPullEventDto

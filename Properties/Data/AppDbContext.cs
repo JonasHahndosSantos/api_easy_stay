@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<ConfigPermissaoEntity> ConfigPermissao { get; set; }
     public DbSet<ConfiguracaoSistemaEntity> ConfiguracaoSistema { get; set; }
     public DbSet<EmpresaEntity> Empresas { get; set; }
+    public DbSet<EspacoSincronizacaoEntity> EspacosSincronizacao { get; set; }
     public DbSet<LancamentoFinanceiroEntity> LancamentosFinanceiros { get; set; }
     public DbSet<QuartoEntity> Quartos { get; set; }
     public DbSet<ReservaEntity> Reservas { get; set; }
@@ -32,6 +33,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<ConfigPerfilPermissaoEntity>().ToTable("config_perfil_permissoes");
         modelBuilder.Entity<ConfiguracaoSistemaEntity>().ToTable("configuracoes_sistema");
         modelBuilder.Entity<EmpresaEntity>().ToTable("empresas");
+        modelBuilder.Entity<EspacoSincronizacaoEntity>().ToTable("espacos_sincronizacao");
         modelBuilder.Entity<LancamentoFinanceiroEntity>().ToTable("lancamentos_financeiros");
         modelBuilder.Entity<QuartoEntity>().ToTable("quartos");
         modelBuilder.Entity<ReservaEntity>().ToTable("reservas");
@@ -44,6 +46,7 @@ public class AppDbContext : DbContext
         ConfigurarAuditoria<ConfigPermissaoEntity>(modelBuilder);
         ConfigurarAuditoria<ConfiguracaoSistemaEntity>(modelBuilder);
         ConfigurarAuditoria<EmpresaEntity>(modelBuilder);
+        ConfigurarAuditoria<EspacoSincronizacaoEntity>(modelBuilder);
         ConfigurarAuditoria<LancamentoFinanceiroEntity>(modelBuilder);
         ConfigurarAuditoria<QuartoEntity>(modelBuilder);
         ConfigurarAuditoria<ReservaEntity>(modelBuilder);
@@ -120,6 +123,13 @@ public class AppDbContext : DbContext
             entity.HasIndex(x => new { x.EspacoId, x.EventoId }).IsUnique();
             entity.HasIndex(x => new { x.EspacoId, x.DataHoraCriado });
             entity.HasIndex(x => new { x.EspacoId, x.Entidade, x.EntidadeId });
+        });
+
+        modelBuilder.Entity<EspacoSincronizacaoEntity>(entity =>
+        {
+            entity.Property(x => x.ChaveHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Nome).HasMaxLength(160);
+            entity.HasIndex(x => x.Ativo);
         });
 
         modelBuilder.Entity<ConfiguracaoSistemaEntity>(entity =>

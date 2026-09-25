@@ -17,14 +17,14 @@ public abstract class BaseController<TEntity, TDto> : ControllerBase
         _service = service;
     }
 
-    [HttpGet]
+    [NonAction]
     public async Task<ActionResult<IReadOnlyList<TDto>>> Listar(CancellationToken cancellationToken)
     {
         var data = await _service.ListarAsync(cancellationToken);
         return Ok(data);
     }
 
-    [HttpGet("{id:guid}")]
+    [NonAction]
     public async Task<ActionResult<TDto>> ObterPorId(Guid id, CancellationToken cancellationToken)
     {
         var data = await _service.ObterPorIdAsync(id, cancellationToken);
@@ -36,14 +36,14 @@ public abstract class BaseController<TEntity, TDto> : ControllerBase
         return Ok(data);
     }
 
-    [HttpPost]
+    [NonAction]
     public async Task<ActionResult<TDto>> Adicionar([FromBody] TDto dto, CancellationToken cancellationToken)
     {
         var created = await _service.AdicionarAsync(dto, cancellationToken);
         return CreatedAtAction(nameof(ObterPorId), new { id = created.Id }, created);
     }
 
-    [HttpPut("{id:guid}")]
+    [NonAction]
     public async Task<ActionResult<TDto>> Atualizar(Guid id, [FromBody] TDto dto, CancellationToken cancellationToken)
     {
         var updated = await _service.AtualizarAsync(id, dto, cancellationToken);
@@ -55,7 +55,7 @@ public abstract class BaseController<TEntity, TDto> : ControllerBase
         return Ok(updated);
     }
 
-    [HttpDelete("{id:guid}")]
+    [NonAction]
     public async Task<IActionResult> Remover(Guid id, CancellationToken cancellationToken)
     {
         var removed = await _service.RemoverAsync(id, cancellationToken);
@@ -77,7 +77,7 @@ public abstract class BaseController<TEntity, TDto> : ControllerBase
         return StatusCode(StatusCodes.Status201Created, data);
     }
 
-    protected ActionResult NotFoundResponse(string message = "Registro nao encontrado.")
+    protected ActionResult NotFoundResponse(string message = "Registro não encontrado.")
     {
         return NotFound(new { message });
     }
