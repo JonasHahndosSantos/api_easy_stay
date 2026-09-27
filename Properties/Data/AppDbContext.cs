@@ -20,6 +20,8 @@ public class AppDbContext : DbContext
     public DbSet<LancamentoFinanceiroEntity> LancamentosFinanceiros { get; set; }
     public DbSet<QuartoEntity> Quartos { get; set; }
     public DbSet<ReservaEntity> Reservas { get; set; }
+    public DbSet<SyncAccessTokenEntity> SyncAccessTokens { get; set; }
+    public DbSet<SyncAuthCodeEntity> SyncAuthCodes { get; set; }
     public DbSet<SincronizacaoEntity> Sincronizacoes { get; set; }
     public DbSet<UsuarioEntity> Usuarios { get; set; }
 
@@ -37,6 +39,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<LancamentoFinanceiroEntity>().ToTable("lancamentos_financeiros");
         modelBuilder.Entity<QuartoEntity>().ToTable("quartos");
         modelBuilder.Entity<ReservaEntity>().ToTable("reservas");
+        modelBuilder.Entity<SyncAccessTokenEntity>().ToTable("sync_access_tokens");
+        modelBuilder.Entity<SyncAuthCodeEntity>().ToTable("sync_auth_codes");
         modelBuilder.Entity<SincronizacaoEntity>().ToTable("sincronizacoes");
         modelBuilder.Entity<UsuarioEntity>().ToTable("usuarios");
 
@@ -50,6 +54,8 @@ public class AppDbContext : DbContext
         ConfigurarAuditoria<LancamentoFinanceiroEntity>(modelBuilder);
         ConfigurarAuditoria<QuartoEntity>(modelBuilder);
         ConfigurarAuditoria<ReservaEntity>(modelBuilder);
+        ConfigurarAuditoria<SyncAccessTokenEntity>(modelBuilder);
+        ConfigurarAuditoria<SyncAuthCodeEntity>(modelBuilder);
         ConfigurarAuditoria<SincronizacaoEntity>(modelBuilder);
         ConfigurarAuditoria<UsuarioEntity>(modelBuilder);
 
@@ -128,8 +134,33 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<EspacoSincronizacaoEntity>(entity =>
         {
             entity.Property(x => x.ChaveHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.IdentificadorHash).HasMaxLength(64);
+            entity.Property(x => x.DocumentoEmpresaHash).HasMaxLength(64);
             entity.Property(x => x.Nome).HasMaxLength(160);
             entity.HasIndex(x => x.Ativo);
+            entity.HasIndex(x => x.IdentificadorHash).IsUnique();
+            entity.HasIndex(x => x.DocumentoEmpresaHash).IsUnique();
+        });
+
+        modelBuilder.Entity<SyncAccessTokenEntity>(entity =>
+        {
+            entity.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.NomeDispositivo).HasMaxLength(160);
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.HasIndex(x => new { x.EspacoId, x.Ativo });
+
+            entity.HasOne(x => x.Espaco)
+                .WithMany()
+                .HasForeignKey(x => x.EspacoId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SyncAuthCodeEntity>(entity =>
+        {
+            entity.Property(x => x.IdentificadorHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.CodigoHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.NomeDispositivo).HasMaxLength(160);
+            entity.HasIndex(x => new { x.IdentificadorHash, x.ExpiraEm });
         });
 
         modelBuilder.Entity<ConfiguracaoSistemaEntity>(entity =>

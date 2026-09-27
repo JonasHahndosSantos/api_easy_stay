@@ -3,6 +3,7 @@ using System;
 using ApiEasyStay.Properties.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ApiEasyStay.Properties.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260925011109_SyncAuthByCode")]
+    partial class SyncAuthByCode
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -296,11 +299,6 @@ namespace ApiEasyStay.Properties.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("data_hora_deletado");
 
-                    b.Property<string>("DocumentoEmpresaHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("documento_empresa_hash");
-
                     b.Property<string>("IdentificadorHash")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
@@ -316,10 +314,6 @@ namespace ApiEasyStay.Properties.Data.Migrations
 
                     b.HasIndex("Ativo")
                         .HasDatabaseName("ix_espacos_sincronizacao_ativo");
-
-                    b.HasIndex("DocumentoEmpresaHash")
-                        .IsUnique()
-                        .HasDatabaseName("ix_espacos_sincronizacao_documento_empresa_hash");
 
                     b.HasIndex("IdentificadorHash")
                         .IsUnique()

@@ -1,4 +1,6 @@
 using System.Data;
+using System.Net;
+using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -19,15 +21,192 @@ public sealed class SyncController : ControllerBase
 {
     private const int MaxBatchSize = 250;
     private const int MaxEventBytes = 512_000;
+    private static readonly TimeSpan AuthCodeLifetime = TimeSpan.FromMinutes(10);
     private static readonly HashSet<string> AllowedEntities =
     [
         "perfis", "clientes", "quartos", "usuarios", "reservas", "lancamentos_financeiros"
     ];
 
     private readonly AppDbContext _context;
-    public SyncController(AppDbContext context)
+    private readonly IConfiguration _configuration;
+    private readonly IWebHostEnvironment _environment;
+    private readonly ILogger<SyncController> _logger;
+
+    public SyncController(
+        AppDbContext context,
+        IConfiguration configuration,
+        IWebHostEnvironment environment,
+        ILogger<SyncController> logger)
     {
         _context = context;
+        _configuration = configuration;
+        _environment = environment;
+        _logger = logger;
+    }
+
+    [HttpPost("company-document/check")]
+    public async Task<IActionResult> CheckCompanyDocument(
+        [FromBody] SyncCompanyDocumentCheckDto request,
+        CancellationToken cancellationToken)
+    {
+        var document = NormalizeCompanyDocument(request.DocumentoEmpresa);
+        if (!IsValidCompanyDocument(document))
+        {
+            return BadRequest(new { message = "Informe um CPF ou CNPJ válido." });
+        }
+
+        var documentHash = HashText(document);
+        var workspace = await _context.EspacosSincronizacao
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.DocumentoEmpresaHash == documentHash && x.Ativo,
+                cancellationToken);
+
+        return Ok(new
+        {
+            exists = workspace is not null,
+            espacoId = workspace?.Id,
+            workspaceId = workspace?.Id,
+            nomeEmpresa = workspace?.Nome,
+            workspaceName = workspace?.Nome
+        });
+    }
+
+    [HttpPost("auth/request-code")]
+    public async Task<IActionResult> RequestCode(
+        [FromBody] SyncAuthCodeRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var identifier = NormalizeIdentifier(request.Identificador);
+        if (!IsValidIdentifier(identifier))
+        {
+            return BadRequest(new { message = "Informe um e-mail ou celular válido." });
+        }
+        var companyDocument = NormalizeCompanyDocument(request.DocumentoEmpresa);
+        if (!string.IsNullOrEmpty(companyDocument) &&
+            !IsValidCompanyDocument(companyDocument))
+        {
+            return BadRequest(new { message = "Informe um CPF ou CNPJ válido." });
+        }
+
+        var now = DateTime.UtcNow;
+        var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+        var identifierHash = HashText(identifier);
+
+        var expiredCodes = await _context.SyncAuthCodes
+            .Where(x => x.IdentificadorHash == identifierHash && x.UsadoEm == null)
+            .ToListAsync(cancellationToken);
+        foreach (var item in expiredCodes)
+        {
+            item.DataHoraDeletado = now;
+            item.DataHoraAtualizado = now;
+        }
+
+        await _context.SyncAuthCodes.AddAsync(new SyncAuthCodeEntity
+        {
+            Id = Guid.NewGuid(),
+            IdentificadorHash = identifierHash,
+            CodigoHash = HashAuthCode(identifier, code),
+            ExpiraEm = now.Add(AuthCodeLifetime),
+            NomeDispositivo = Truncate(request.NomeDispositivo?.Trim(), 160),
+            DataHoraCriado = now,
+            DataHoraAtualizado = now
+        }, cancellationToken);
+
+        var deliveredBy = await SendAuthCodeAsync(identifier, code, cancellationToken);
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return Ok(new
+        {
+            sent = true,
+            expiresInSeconds = (int)AuthCodeLifetime.TotalSeconds,
+            deliveredBy,
+            codigoDesenvolvimento = deliveredBy == "development-console" ? code : null
+        });
+    }
+
+    [HttpPost("auth/verify-code")]
+    public async Task<IActionResult> VerifyCode(
+        [FromBody] SyncAuthCodeVerifyDto request,
+        CancellationToken cancellationToken)
+    {
+        var identifier = NormalizeIdentifier(request.Identificador);
+        var code = OnlyDigits(request.Codigo);
+        if (!IsValidIdentifier(identifier) || code.Length != 6)
+        {
+            return BadRequest(new { message = "Código ou contato inválido." });
+        }
+        var companyDocument = NormalizeCompanyDocument(request.DocumentoEmpresa);
+        if (!string.IsNullOrEmpty(companyDocument) &&
+            !IsValidCompanyDocument(companyDocument))
+        {
+            return BadRequest(new { message = "Informe um CPF ou CNPJ válido." });
+        }
+
+        var now = DateTime.UtcNow;
+        var identifierHash = HashText(identifier);
+        var companyDocumentHash = string.IsNullOrEmpty(companyDocument)
+            ? null
+            : HashText(companyDocument);
+        var authCode = await _context.SyncAuthCodes
+            .Where(x =>
+                x.IdentificadorHash == identifierHash &&
+                x.UsadoEm == null &&
+                x.ExpiraEm >= now)
+            .OrderByDescending(x => x.DataHoraCriado)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (authCode is null)
+        {
+            return Unauthorized(new { message = "Código inválido ou expirado." });
+        }
+        if (authCode.Tentativas >= 5)
+        {
+            return Unauthorized(new { message = "Código bloqueado por excesso de tentativas." });
+        }
+        if (!FixedTimeEquals(authCode.CodigoHash, HashAuthCode(identifier, code)))
+        {
+            authCode.Tentativas++;
+            authCode.DataHoraAtualizado = now;
+            await _context.SaveChangesAsync(cancellationToken);
+            return Unauthorized(new { message = "Código inválido ou expirado." });
+        }
+
+        authCode.UsadoEm = now;
+        authCode.DataHoraAtualizado = now;
+
+        var workspace = await GetOrCreateWorkspaceAsync(
+            identifier,
+            identifierHash,
+            companyDocumentHash,
+            cancellationToken);
+        var accessKey = GenerateAccessKey();
+        await _context.SyncAccessTokens.AddAsync(new SyncAccessTokenEntity
+        {
+            Id = Guid.NewGuid(),
+            EspacoId = workspace.Id,
+            TokenHash = HashKey(accessKey),
+            DispositivoId = request.DispositivoId == Guid.Empty ? null : request.DispositivoId,
+            NomeDispositivo = Truncate(request.NomeDispositivo?.Trim(), 160),
+            Ativo = true,
+            DataHoraCriado = now,
+            DataHoraAtualizado = now
+        }, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        var user = await FindSyncedUserAsync(workspace.Id, identifier, cancellationToken);
+        return Ok(new
+        {
+            espacoId = workspace.Id,
+            workspaceId = workspace.Id,
+            nomeEmpresa = workspace.Nome,
+            workspaceName = workspace.Nome,
+            syncToken = accessKey,
+            accessKey,
+            userId = user?.UserId,
+            userEmail = user?.Email,
+            email = user?.Email
+        });
     }
 
     [HttpPost("register")]
@@ -66,7 +245,14 @@ public sealed class SyncController : ControllerBase
                 });
             }
 
-            return Ok(new { registered = true, espacoId = existing.Id });
+            return Ok(new
+            {
+                registered = true,
+                espacoId = existing.Id,
+                workspaceId = existing.Id,
+                nomeEmpresa = existing.Nome,
+                workspaceName = existing.Nome
+            });
         }
 
         var now = DateTime.UtcNow;
@@ -97,7 +283,14 @@ public sealed class SyncController : ControllerBase
         }
         return StatusCode(
             StatusCodes.Status201Created,
-            new { registered = true, espacoId = workspace.Id });
+            new
+            {
+                registered = true,
+                espacoId = workspace.Id,
+                workspaceId = workspace.Id,
+                nomeEmpresa = workspace.Nome,
+                workspaceName = workspace.Nome
+            });
     }
 
     [HttpGet("health")]
@@ -184,7 +377,10 @@ public sealed class SyncController : ControllerBase
 
             if (entityName == "reservas" && operation != "excluir")
             {
-                var conflict = FindReservationConflict(incoming, reservationState.Values);
+                var conflict = FindReservationConflict(
+                    incoming,
+                    reservationState.Values,
+                    request.DispositivoId);
                 if (conflict is not null)
                 {
                     response.Conflitos.Add(conflict);
@@ -305,7 +501,20 @@ public sealed class SyncController : ControllerBase
         }
 
         var suppliedKey = GetSuppliedKey();
-        if (!IsValidKey(suppliedKey) || !MatchesKey(workspace.ChaveHash, suppliedKey))
+        if (!IsValidKey(suppliedKey))
+        {
+            return Unauthorized(new { message = "Chave de sincronização inválida." });
+        }
+
+        var keyHash = HashKey(suppliedKey);
+        var validDeviceToken = await _context.SyncAccessTokens
+            .AsNoTracking()
+            .AnyAsync(
+                x => x.EspacoId == workspaceId &&
+                     x.Ativo &&
+                     x.TokenHash == keyHash,
+                cancellationToken);
+        if (!MatchesKey(workspace.ChaveHash, suppliedKey) && !validDeviceToken)
         {
             return Unauthorized(new { message = "Chave de sincronização inválida." });
         }
@@ -342,6 +551,241 @@ public sealed class SyncController : ControllerBase
     private string GetSuppliedKey() => Request.Headers["X-EasyStay-Key"].ToString();
 
     private static bool IsValidKey(string key) => key.Length is >= 32 and <= 256;
+
+    private static string NormalizeIdentifier(string? value)
+    {
+        var text = value?.Trim() ?? string.Empty;
+        if (text.Contains('@'))
+        {
+            return text.ToLowerInvariant();
+        }
+        return OnlyDigits(text);
+    }
+
+    private static string OnlyDigits(string value)
+    {
+        var digits = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            if (char.IsDigit(character)) digits.Append(character);
+        }
+        return digits.ToString();
+    }
+
+    private static string NormalizeCompanyDocument(string? value) =>
+        OnlyDigits(value ?? string.Empty);
+
+    private static bool IsValidCompanyDocument(string document) =>
+        document.Length is 11 or 14 && !document.All(character => character == document[0]);
+
+    private static bool IsValidIdentifier(string identifier)
+    {
+        if (identifier.Contains('@'))
+        {
+            return identifier.Length <= 254 &&
+                   identifier.Count(character => character == '@') == 1 &&
+                   identifier.IndexOf('@') > 0 &&
+                   identifier.LastIndexOf('@') < identifier.Length - 1;
+        }
+        return identifier.Length is >= 10 and <= 15;
+    }
+
+    private static string HashText(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+
+    private static string HashAuthCode(string identifier, string code) =>
+        HashText($"{identifier}:{code}");
+
+    private static bool FixedTimeEquals(string expectedHex, string suppliedHex)
+    {
+        if (expectedHex.Length != suppliedHex.Length) return false;
+        var expected = Encoding.UTF8.GetBytes(expectedHex);
+        var supplied = Encoding.UTF8.GetBytes(suppliedHex);
+        return CryptographicOperations.FixedTimeEquals(expected, supplied);
+    }
+
+    private static string GenerateAccessKey()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(32);
+        return Convert.ToBase64String(bytes)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+    }
+
+    private static string? Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return value.Length <= maxLength ? value : value[..maxLength];
+    }
+
+    private async Task<EspacoSincronizacaoEntity> GetOrCreateWorkspaceAsync(
+        string identifier,
+        string identifierHash,
+        string? companyDocumentHash,
+        CancellationToken cancellationToken)
+    {
+        var workspace = await _context.EspacosSincronizacao
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
+                x => companyDocumentHash != null
+                    ? x.DocumentoEmpresaHash == companyDocumentHash
+                    : x.IdentificadorHash == identifierHash,
+                cancellationToken);
+        if (workspace is not null)
+        {
+            if (workspace.DataHoraDeletado is not null || !workspace.Ativo)
+            {
+                workspace.Ativo = true;
+                workspace.DataHoraDeletado = null;
+            }
+            if (string.IsNullOrWhiteSpace(workspace.Nome))
+            {
+                workspace.Nome = BuildWorkspaceName(identifier);
+            }
+            if (workspace.IdentificadorHash is null)
+            {
+                workspace.IdentificadorHash = identifierHash;
+            }
+            if (companyDocumentHash is not null &&
+                workspace.DocumentoEmpresaHash is null)
+            {
+                workspace.DocumentoEmpresaHash = companyDocumentHash;
+            }
+            workspace.DataHoraAtualizado = DateTime.UtcNow;
+            return workspace;
+        }
+
+        var now = DateTime.UtcNow;
+        workspace = new EspacoSincronizacaoEntity
+        {
+            Id = Guid.NewGuid(),
+            IdentificadorHash = identifierHash,
+            DocumentoEmpresaHash = companyDocumentHash,
+            ChaveHash = HashKey(GenerateAccessKey()),
+            Nome = BuildWorkspaceName(identifier),
+            Ativo = true,
+            DataHoraCriado = now,
+            DataHoraAtualizado = now
+        };
+        await _context.EspacosSincronizacao.AddAsync(workspace, cancellationToken);
+        return workspace;
+    }
+
+    private static string BuildWorkspaceName(string identifier)
+    {
+        if (identifier.Contains('@'))
+        {
+            var parts = identifier.Split('@', 2);
+            var name = parts[0].Length <= 2
+                ? parts[0]
+                : $"{parts[0][..2]}***";
+            return $"Easy Stay - {name}@{parts[1]}";
+        }
+
+        var masked = identifier.Length <= 4
+            ? identifier
+            : $"***{identifier[^4..]}";
+        return $"Easy Stay - {masked}";
+    }
+
+    private async Task<string> SendAuthCodeAsync(
+        string identifier,
+        string code,
+        CancellationToken cancellationToken)
+    {
+        var smtpHost = _configuration["Smtp:Host"];
+        if (!identifier.Contains('@') || string.IsNullOrWhiteSpace(smtpHost))
+        {
+            if (_environment.IsDevelopment())
+            {
+                _logger.LogWarning(
+                    "Código local Easy Stay para {Identifier}: {Code}",
+                    identifier,
+                    code);
+                return "development-console";
+            }
+
+            throw new InvalidOperationException(
+                "Configure Smtp:Host para enviar o código por e-mail.");
+        }
+
+        using var message = new MailMessage
+        {
+            From = new MailAddress(
+                _configuration["Smtp:From"] ?? "noreply@easystay.local",
+                _configuration["Smtp:FromName"] ?? "Easy Stay"),
+            Subject = "Código de acesso Easy Stay",
+            Body = $"Seu código de acesso Easy Stay é {code}. Ele expira em 10 minutos.",
+            IsBodyHtml = false
+        };
+        message.To.Add(identifier);
+
+        using var smtp = new SmtpClient(smtpHost)
+        {
+            Port = int.TryParse(_configuration["Smtp:Port"], out var port) ? port : 587,
+            EnableSsl = bool.TryParse(_configuration["Smtp:EnableSsl"], out var ssl) && ssl
+        };
+        var username = _configuration["Smtp:Username"];
+        var password = _configuration["Smtp:Password"];
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            smtp.Credentials = new NetworkCredential(username, password);
+        }
+
+        await smtp.SendMailAsync(message, cancellationToken);
+        return "email";
+    }
+
+    private async Task<SyncedUser?> FindSyncedUserAsync(
+        Guid workspaceId,
+        string identifier,
+        CancellationToken cancellationToken)
+    {
+        var events = await _context.Sincronizacoes
+            .AsNoTracking()
+            .Where(x => x.EspacoId == workspaceId && x.Entidade == "usuarios")
+            .OrderByDescending(x => x.DataHoraCriado)
+            .Take(1000)
+            .ToListAsync(cancellationToken);
+
+        var seenUsers = new HashSet<Guid>();
+        SyncedUser? firstActiveUser = null;
+        foreach (var syncEvent in events)
+        {
+            if (syncEvent.EntidadeId is null ||
+                !seenUsers.Add(syncEvent.EntidadeId.Value))
+            {
+                continue;
+            }
+            using var document = JsonDocument.Parse(syncEvent.Dados ?? "{}");
+            var data = document.RootElement;
+            if (syncEvent.Operacao == "excluir" ||
+                HasNonNullProperty(data, "DataHoraDeletado") ||
+                TryGetInt(data, "ativo", out var active) && active == 0)
+            {
+                continue;
+            }
+
+            var email = TryGetString(data, "email", out var foundEmail)
+                ? foundEmail.Trim()
+                : null;
+            var user = new SyncedUser(syncEvent.EntidadeId.Value, email);
+            firstActiveUser ??= user;
+            if (identifier.Contains('@') &&
+                email is not null &&
+                string.Equals(email, identifier, StringComparison.OrdinalIgnoreCase))
+            {
+                return user;
+            }
+        }
+
+        return identifier.Contains('@') ? null : firstActiveUser;
+    }
+
+    private static bool HasNonNullProperty(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var property) &&
+        property.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined;
 
     private static string HashKey(string key) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
@@ -407,14 +851,17 @@ public sealed class SyncController : ControllerBase
 
     private static SyncConflictDto? FindReservationConflict(
         SyncPushEventDto incoming,
-        IEnumerable<SincronizacaoEntity> currentReservations)
+        IEnumerable<SincronizacaoEntity> currentReservations,
+        Guid deviceId)
     {
         var local = ParseReservation(incoming.Dados, incoming.EntidadeId, incoming.Operacao);
         if (local is null || !local.IsActive) return null;
 
         foreach (var current in currentReservations)
         {
-            if (current.EntidadeId == incoming.EntidadeId || string.IsNullOrWhiteSpace(current.Dados))
+            if (current.EntidadeId == incoming.EntidadeId ||
+                current.DispositivoId == deviceId ||
+                string.IsNullOrWhiteSpace(current.Dados))
             {
                 continue;
             }
@@ -504,4 +951,6 @@ public sealed class SyncController : ControllerBase
         DateTime Start,
         DateTime End,
         bool IsActive);
+
+    private sealed record SyncedUser(Guid UserId, string? Email);
 }

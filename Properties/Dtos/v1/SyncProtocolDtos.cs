@@ -12,6 +12,42 @@ public sealed class SyncRegisterRequestDto
     public string? NomeDispositivo { get; set; }
 }
 
+public sealed class SyncAuthCodeRequestDto
+{
+    [JsonPropertyName("identificador")]
+    public string Identificador { get; set; } = string.Empty;
+
+    [JsonPropertyName("documentoEmpresa")]
+    public string? DocumentoEmpresa { get; set; }
+
+    [JsonPropertyName("nomeDispositivo")]
+    public string? NomeDispositivo { get; set; }
+}
+
+public sealed class SyncAuthCodeVerifyDto
+{
+    [JsonPropertyName("identificador")]
+    public string Identificador { get; set; } = string.Empty;
+
+    [JsonPropertyName("codigo")]
+    public string Codigo { get; set; } = string.Empty;
+
+    [JsonPropertyName("documentoEmpresa")]
+    public string? DocumentoEmpresa { get; set; }
+
+    [JsonPropertyName("dispositivoId")]
+    public Guid DispositivoId { get; set; }
+
+    [JsonPropertyName("nomeDispositivo")]
+    public string? NomeDispositivo { get; set; }
+}
+
+public sealed class SyncCompanyDocumentCheckDto
+{
+    [JsonPropertyName("documentoEmpresa")]
+    public string DocumentoEmpresa { get; set; } = string.Empty;
+}
+
 public sealed class SyncPushRequestDto
 {
     [JsonPropertyName("espacoId")]
