@@ -158,9 +158,13 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<SyncAuthCodeEntity>(entity =>
         {
             entity.Property(x => x.IdentificadorHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.DocumentoEmpresaHash).HasMaxLength(64).IsRequired();
             entity.Property(x => x.CodigoHash).HasMaxLength(64).IsRequired();
             entity.Property(x => x.NomeDispositivo).HasMaxLength(160);
             entity.HasIndex(x => new { x.IdentificadorHash, x.ExpiraEm });
+            entity.HasIndex(x => new
+                { x.IdentificadorHash, x.DocumentoEmpresaHash, x.ExpiraEm })
+                .HasDatabaseName("ix_sync_auth_codes_ident_doc_expira");
         });
 
         modelBuilder.Entity<ConfiguracaoSistemaEntity>(entity =>

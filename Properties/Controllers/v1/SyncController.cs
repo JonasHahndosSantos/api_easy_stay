@@ -61,10 +61,14 @@ public sealed class SyncController : ControllerBase
             .FirstOrDefaultAsync(
                 x => x.DocumentoEmpresaHash == documentHash && x.Ativo,
                 cancellationToken);
+        var hasData = workspace is not null && await _context.Sincronizacoes
+            .AsNoTracking()
+            .AnyAsync(x => x.EspacoId == workspace.Id, cancellationToken);
 
         return Ok(new
         {
             exists = workspace is not null,
+            hasData,
             espacoId = workspace?.Id,
             workspaceId = workspace?.Id,
             nomeEmpresa = workspace?.Nome,
@@ -83,8 +87,7 @@ public sealed class SyncController : ControllerBase
             return BadRequest(new { message = "Informe um e-mail ou celular válido." });
         }
         var companyDocument = NormalizeCompanyDocument(request.DocumentoEmpresa);
-        if (!string.IsNullOrEmpty(companyDocument) &&
-            !IsValidCompanyDocument(companyDocument))
+        if (!IsValidCompanyDocument(companyDocument))
         {
             return BadRequest(new { message = "Informe um CPF ou CNPJ válido." });
         }
@@ -92,6 +95,7 @@ public sealed class SyncController : ControllerBase
         var now = DateTime.UtcNow;
         var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
         var identifierHash = HashText(identifier);
+        var companyDocumentHash = HashText(companyDocument);
 
         var expiredCodes = await _context.SyncAuthCodes
             .Where(x => x.IdentificadorHash == identifierHash && x.UsadoEm == null)
@@ -106,6 +110,7 @@ public sealed class SyncController : ControllerBase
         {
             Id = Guid.NewGuid(),
             IdentificadorHash = identifierHash,
+            DocumentoEmpresaHash = companyDocumentHash,
             CodigoHash = HashAuthCode(identifier, code),
             ExpiraEm = now.Add(AuthCodeLifetime),
             NomeDispositivo = Truncate(request.NomeDispositivo?.Trim(), 160),
@@ -138,20 +143,18 @@ public sealed class SyncController : ControllerBase
             return BadRequest(new { message = "Código ou contato inválido." });
         }
         var companyDocument = NormalizeCompanyDocument(request.DocumentoEmpresa);
-        if (!string.IsNullOrEmpty(companyDocument) &&
-            !IsValidCompanyDocument(companyDocument))
+        if (!IsValidCompanyDocument(companyDocument))
         {
             return BadRequest(new { message = "Informe um CPF ou CNPJ válido." });
         }
 
         var now = DateTime.UtcNow;
         var identifierHash = HashText(identifier);
-        var companyDocumentHash = string.IsNullOrEmpty(companyDocument)
-            ? null
-            : HashText(companyDocument);
+        var companyDocumentHash = HashText(companyDocument);
         var authCode = await _context.SyncAuthCodes
             .Where(x =>
                 x.IdentificadorHash == identifierHash &&
+                x.DocumentoEmpresaHash == companyDocumentHash &&
                 x.UsadoEm == null &&
                 x.ExpiraEm >= now)
             .OrderByDescending(x => x.DataHoraCriado)

@@ -6,6 +6,8 @@ public sealed class SyncAuthCodeEntity : BaseEntity
 {
     public string IdentificadorHash { get; set; } = string.Empty;
 
+    public string DocumentoEmpresaHash { get; set; } = string.Empty;
+
     public string CodigoHash { get; set; } = string.Empty;
 
     public DateTime ExpiraEm { get; set; }

@@ -653,6 +653,12 @@ namespace ApiEasyStay.Properties.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("data_hora_deletado");
 
+                    b.Property<string>("DocumentoEmpresaHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("documento_empresa_hash");
+
                     b.Property<DateTime>("ExpiraEm")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expira_em");
@@ -681,6 +687,9 @@ namespace ApiEasyStay.Properties.Data.Migrations
 
                     b.HasIndex("IdentificadorHash", "ExpiraEm")
                         .HasDatabaseName("ix_sync_auth_codes_identificador_hash_expira_em");
+
+                    b.HasIndex("IdentificadorHash", "DocumentoEmpresaHash", "ExpiraEm")
+                        .HasDatabaseName("ix_sync_auth_codes_ident_doc_expira");
 
                     b.ToTable("sync_auth_codes", (string)null);
                 });
