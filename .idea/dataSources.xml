@@ -12,7 +12,7 @@
       <driver-ref>sqlite.xerial</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>org.sqlite.JDBC</jdbc-driver>
-      <jdbc-url>jdbc:sqlite:$USER_HOME$/Downloads/backup_20260730_113359.db</jdbc-url>
+      <jdbc-url>jdbc:sqlite:$PROJECT_DIR$/../reserva_quartos/.dart_tool/sqflite_common_ffi/databases/reserva_quartos.db</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
   </component>

@@ -278,6 +278,10 @@ namespace ApiEasyStay.Properties.Data.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("ativo");
 
+                    b.Property<bool>("CargaInicialConcluida")
+                        .HasColumnType("boolean")
+                        .HasColumnName("carga_inicial_concluida");
+
                     b.Property<string>("ChaveHash")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -295,6 +299,10 @@ namespace ApiEasyStay.Properties.Data.Migrations
                     b.Property<DateTime?>("DataHoraDeletado")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("data_hora_deletado");
+
+                    b.Property<Guid?>("DispositivoCargaInicialId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("dispositivo_carga_inicial_id");
 
                     b.Property<string>("DocumentoEmpresaHash")
                         .HasMaxLength(64)
@@ -694,6 +702,65 @@ namespace ApiEasyStay.Properties.Data.Migrations
                     b.ToTable("sync_auth_codes", (string)null);
                 });
 
+            modelBuilder.Entity("ApiEasyStay.Properties.Entities.v1.SyncEntityStateEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Dados")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("dados");
+
+                    b.Property<DateTime?>("DataHoraAtualizado")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("data_hora_atualizado");
+
+                    b.Property<DateTime>("DataHoraCriado")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("data_hora_criado");
+
+                    b.Property<DateTime?>("DataHoraDeletado")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("data_hora_deletado");
+
+                    b.Property<DateTime>("DataHoraOrigem")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("data_hora_origem");
+
+                    b.Property<string>("Entidade")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("entidade");
+
+                    b.Property<Guid>("EntidadeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entidade_id");
+
+                    b.Property<Guid>("EspacoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("espaco_id");
+
+                    b.Property<bool>("Excluido")
+                        .HasColumnType("boolean")
+                        .HasColumnName("excluido");
+
+                    b.HasKey("Id")
+                        .HasName("pk_sync_entidades");
+
+                    b.HasIndex("EspacoId", "Excluido")
+                        .HasDatabaseName("ix_sync_entidades_espaco_id_excluido");
+
+                    b.HasIndex("EspacoId", "Entidade", "EntidadeId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_sync_entidades_espaco_id_entidade_entidade_id");
+
+                    b.ToTable("sync_entidades", (string)null);
+                });
+
             modelBuilder.Entity("ApiEasyStay.Properties.Entities.v1.UsuarioEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -829,6 +896,16 @@ namespace ApiEasyStay.Properties.Data.Migrations
                         .HasConstraintName("fk_sync_access_tokens_espacos_sincronizacao_espaco_id");
 
                     b.Navigation("Espaco");
+                });
+
+            modelBuilder.Entity("ApiEasyStay.Properties.Entities.v1.SyncEntityStateEntity", b =>
+                {
+                    b.HasOne("ApiEasyStay.Properties.Entities.v1.EspacoSincronizacaoEntity", null)
+                        .WithMany()
+                        .HasForeignKey("EspacoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_sync_entidades_espacos_sincronizacao_espaco_id");
                 });
 
             modelBuilder.Entity("ApiEasyStay.Properties.Entities.v1.UsuarioEntity", b =>

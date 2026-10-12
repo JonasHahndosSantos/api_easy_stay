@@ -4,6 +4,7 @@ using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ApiEasyStay.Properties.Data;
 using ApiEasyStay.Properties.Dtos.v1;
 using ApiEasyStay.Properties.Entities.v1;
@@ -24,7 +25,7 @@ public sealed class SyncController : ControllerBase
     private static readonly TimeSpan AuthCodeLifetime = TimeSpan.FromMinutes(10);
     private static readonly HashSet<string> AllowedEntities =
     [
-        "perfis", "clientes", "quartos", "usuarios", "reservas", "lancamentos_financeiros"
+        "dados_empresa", "perfis", "clientes", "quartos", "usuarios", "reservas", "lancamentos_financeiros"
     ];
 
     private readonly AppDbContext _context;
@@ -86,16 +87,55 @@ public sealed class SyncController : ControllerBase
         {
             return BadRequest(new { message = "Informe um e-mail ou celular válido." });
         }
-        var companyDocument = NormalizeCompanyDocument(request.DocumentoEmpresa);
-        if (!IsValidCompanyDocument(companyDocument))
-        {
-            return BadRequest(new { message = "Informe um CPF ou CNPJ válido." });
-        }
-
         var now = DateTime.UtcNow;
         var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
         var identifierHash = HashText(identifier);
-        var companyDocumentHash = HashText(companyDocument);
+        var companyDocument = NormalizeCompanyDocument(request.DocumentoEmpresa);
+        var companyDocumentHash = string.Empty;
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        await LockAuthAsync(identifierHash, companyDocument, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(companyDocument))
+        {
+            if (!IsValidCompanyDocument(companyDocument))
+            {
+                return BadRequest(new { message = "Informe um CPF ou CNPJ válido." });
+            }
+            companyDocumentHash = HashText(companyDocument);
+            var registeredWorkspace = await _context.EspacosSincronizacao
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.DocumentoEmpresaHash == companyDocumentHash,
+                    cancellationToken);
+            if (registeredWorkspace is not null &&
+                (!registeredWorkspace.Ativo || registeredWorkspace.DataHoraDeletado is not null ||
+                registeredWorkspace.IdentificadorHash != identifierHash))
+            {
+                return Unauthorized(new
+                {
+                    message = "Use o contato já vinculado a esta pousada."
+                });
+            }
+            var contactWorkspace = await _context.EspacosSincronizacao.IgnoreQueryFilters().AsNoTracking()
+                .FirstOrDefaultAsync(x => x.IdentificadorHash == identifierHash, cancellationToken);
+            if (contactWorkspace is not null && contactWorkspace.DocumentoEmpresaHash != companyDocumentHash)
+                return Conflict(new { message = "Este contato já está vinculado a outra pousada. Use o contato daquela pousada ou informe outro contato para criar uma nova." });
+        }
+        else
+        {
+            var workspace = await _context.EspacosSincronizacao
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.IdentificadorHash == identifierHash && x.Ativo,
+                    cancellationToken);
+            if (workspace is null)
+            {
+                return NotFound(new
+                {
+                    message = "Nenhuma pousada na nuvem foi encontrada para este contato."
+                });
+            }
+        }
 
         var expiredCodes = await _context.SyncAuthCodes
             .Where(x => x.IdentificadorHash == identifierHash && x.UsadoEm == null)
@@ -121,6 +161,7 @@ public sealed class SyncController : ControllerBase
         var deliveredBy = await SendAuthCodeAsync(identifier, code, cancellationToken);
 
         await _context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         return Ok(new
         {
@@ -142,15 +183,32 @@ public sealed class SyncController : ControllerBase
         {
             return BadRequest(new { message = "Código ou contato inválido." });
         }
-        var companyDocument = NormalizeCompanyDocument(request.DocumentoEmpresa);
-        if (!IsValidCompanyDocument(companyDocument))
-        {
-            return BadRequest(new { message = "Informe um CPF ou CNPJ válido." });
-        }
-
         var now = DateTime.UtcNow;
         var identifierHash = HashText(identifier);
-        var companyDocumentHash = HashText(companyDocument);
+        var companyDocument = NormalizeCompanyDocument(request.DocumentoEmpresa);
+        var companyDocumentHash = string.Empty;
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        await LockAuthAsync(identifierHash, companyDocument, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(companyDocument))
+        {
+            if (!IsValidCompanyDocument(companyDocument))
+            {
+                return BadRequest(new { message = "Informe um CPF ou CNPJ válido." });
+            }
+            companyDocumentHash = HashText(companyDocument);
+            var registeredWorkspace = await _context.EspacosSincronizacao
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.DocumentoEmpresaHash == companyDocumentHash,
+                    cancellationToken);
+            if (registeredWorkspace is not null &&
+                (!registeredWorkspace.Ativo || registeredWorkspace.DataHoraDeletado is not null ||
+                registeredWorkspace.IdentificadorHash != identifierHash))
+            {
+                return Unauthorized(new { message = "Código inválido ou expirado." });
+            }
+        }
         var authCode = await _context.SyncAuthCodes
             .Where(x =>
                 x.IdentificadorHash == identifierHash &&
@@ -172,17 +230,37 @@ public sealed class SyncController : ControllerBase
             authCode.Tentativas++;
             authCode.DataHoraAtualizado = now;
             await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             return Unauthorized(new { message = "Código inválido ou expirado." });
         }
 
         authCode.UsadoEm = now;
         authCode.DataHoraAtualizado = now;
 
-        var workspace = await GetOrCreateWorkspaceAsync(
-            identifier,
-            identifierHash,
-            companyDocumentHash,
-            cancellationToken);
+        EspacoSincronizacaoEntity? workspace;
+        if (string.IsNullOrWhiteSpace(companyDocument))
+        {
+            workspace = await _context.EspacosSincronizacao
+                .FirstOrDefaultAsync(
+                    x => x.IdentificadorHash == identifierHash && x.Ativo,
+                    cancellationToken);
+            if (workspace is null)
+            {
+                return NotFound(new
+                {
+                    message = "A pousada vinculada a este contato não está mais disponível."
+                });
+            }
+        }
+        else
+        {
+            workspace = await GetOrCreateWorkspaceAsync(
+                identifier,
+                identifierHash,
+                companyDocumentHash,
+                request.NomeEmpresa,
+                cancellationToken);
+        }
         var accessKey = GenerateAccessKey();
         await _context.SyncAccessTokens.AddAsync(new SyncAccessTokenEntity
         {
@@ -196,6 +274,7 @@ public sealed class SyncController : ControllerBase
             DataHoraAtualizado = now
         }, cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         var user = await FindSyncedUserAsync(workspace.Id, identifier, cancellationToken);
         return Ok(new
@@ -217,6 +296,7 @@ public sealed class SyncController : ControllerBase
         [FromBody] SyncRegisterRequestDto request,
         CancellationToken cancellationToken)
     {
+        if (!_environment.IsDevelopment()) return NotFound();
         if (request.EspacoId == Guid.Empty)
         {
             return BadRequest(new { message = "Informe o código da hospedagem." });
@@ -267,6 +347,7 @@ public sealed class SyncController : ControllerBase
                 ? null
                 : request.NomeDispositivo.Trim(),
             Ativo = true,
+            CargaInicialConcluida = true,
             DataHoraCriado = now,
             DataHoraAtualizado = now
         };
@@ -311,6 +392,129 @@ public sealed class SyncController : ControllerBase
         return Ok(new { online = true, serverTime = DateTime.UtcNow });
     }
 
+    [HttpPost("bootstrap")]
+    public async Task<IActionResult> Bootstrap(
+        [FromBody] SyncBootstrapRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (request.EspacoId == Guid.Empty || request.DispositivoId == Guid.Empty)
+            return BadRequest(new { message = "Hospedagem e dispositivo são obrigatórios." });
+        var authorizationError = await ValidateAccessAsync(request.EspacoId, cancellationToken);
+        if (authorizationError is not null) return authorizationError;
+        var deviceError = await ValidateDeviceAsync(request.DispositivoId, cancellationToken);
+        if (deviceError is not null) return deviceError;
+
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        await LockWorkspaceAsync(request.EspacoId, cancellationToken);
+        var workspace = await _context.EspacosSincronizacao
+            .FirstAsync(x => x.Id == request.EspacoId, cancellationToken);
+        if (workspace.DispositivoCargaInicialId is null)
+        {
+            var legacyFirstEvent = await _context.Sincronizacoes.AsNoTracking()
+                .Where(x => x.EspacoId == request.EspacoId)
+                .OrderBy(x => x.DataHoraCriado).ThenBy(x => x.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (legacyFirstEvent is not null)
+                return Ok(new { source = legacyFirstEvent.DispositivoId == request.DispositivoId ? "local" : "cloud", completed = true });
+        }
+        if (!workspace.CargaInicialConcluida)
+        {
+            if (workspace.DispositivoCargaInicialId is null && !request.Concluir)
+                workspace.DispositivoCargaInicialId = request.DispositivoId;
+            if (workspace.DispositivoCargaInicialId != request.DispositivoId)
+                return Conflict(new { message = "A primeira carga está em andamento em outro dispositivo. Aguarde a conclusão e tente novamente." });
+            if (request.Concluir)
+            {
+                if (!await _context.Sincronizacoes.AnyAsync(x => x.EspacoId == request.EspacoId, cancellationToken))
+                    return BadRequest(new { message = "Envie os dados antes de concluir a primeira carga." });
+                workspace.CargaInicialConcluida = true;
+            }
+            workspace.DataHoraAtualizado = DateTime.UtcNow;
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        await transaction.CommitAsync(cancellationToken);
+        return Ok(new
+        {
+            source = workspace.DispositivoCargaInicialId == request.DispositivoId ? "local" : "cloud",
+            completed = workspace.CargaInicialConcluida
+        });
+    }
+
+    [HttpGet("snapshot")]
+    public async Task<IActionResult> Snapshot([FromQuery] Guid espacoId, CancellationToken cancellationToken)
+    {
+        var authorizationError = await ValidateAccessAsync(espacoId, cancellationToken);
+        if (authorizationError is not null) return authorizationError;
+        await using var transaction = await _context.Database.BeginTransactionAsync(
+            IsolationLevel.RepeatableRead, cancellationToken);
+        var workspace = await _context.EspacosSincronizacao.AsNoTracking()
+            .FirstAsync(x => x.Id == espacoId, cancellationToken);
+        var legacyComplete = workspace.DispositivoCargaInicialId is null &&
+            await _context.Sincronizacoes.AnyAsync(x => x.EspacoId == espacoId, cancellationToken);
+        if (!workspace.CargaInicialConcluida && !legacyComplete)
+            return Conflict(new { message = "A primeira carga ainda não terminou. Aguarde o envio no dispositivo de origem." });
+        var latest = await _context.Sincronizacoes.AsNoTracking()
+            .Where(x => x.EspacoId == espacoId)
+            .OrderByDescending(x => x.DataHoraCriado).ThenByDescending(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        var states = await _context.SyncEntityStates.AsNoTracking()
+            .Where(x => x.EspacoId == espacoId).ToListAsync(cancellationToken);
+        var previousData = new Dictionary<(string?, Guid), string>();
+        if (states.Any(x => x.Excluido))
+        {
+            var previous = await _context.Sincronizacoes.FromSqlInterpolated($"""
+                SELECT DISTINCT ON (entidade, entidade_id) * FROM sincronizacoes
+                WHERE espaco_id = {espacoId} AND operacao != 'excluir' AND entidade_id IS NOT NULL
+                ORDER BY entidade, entidade_id, data_hora_criado DESC, id DESC
+                """).AsNoTracking().ToListAsync(cancellationToken);
+            previousData = previous.ToDictionary(x => (x.Entidade, x.EntidadeId!.Value), x => x.Dados ?? "{}");
+        }
+        var entityOrder = new[] { "dados_empresa", "perfis", "clientes", "quartos", "usuarios", "reservas", "lancamentos_financeiros" };
+        var events = states.OrderBy(x => Array.IndexOf(entityOrder, x.Entidade))
+            .ThenBy(x => x.EntidadeId).Select(state =>
+            {
+                var data = JsonNode.Parse(state.Dados)!.AsObject();
+                if (state.Excluido && previousData.TryGetValue((state.Entidade, state.EntidadeId), out var original))
+                {
+                    var fullData = JsonNode.Parse(original)!.AsObject();
+                    foreach (var item in data) fullData[item.Key] = item.Value?.DeepClone();
+                    data = fullData;
+                }
+                if (state.Excluido && data["DataHoraDeletado"] is null)
+                    data["DataHoraDeletado"] = state.DataHoraOrigem;
+                return new SyncPullEventDto
+                {
+                    IdEvento = state.Id,
+                    Entidade = state.Entidade,
+                    EntidadeId = state.EntidadeId,
+                    Operacao = "atualizar",
+                    Dados = JsonSerializer.SerializeToElement(data),
+                    DataHoraServidor = state.DataHoraOrigem
+                };
+            }).ToList();
+        await transaction.CommitAsync(cancellationToken);
+        return Ok(new SyncPullResponseDto
+        {
+            Eventos = events,
+            Cursor = latest is null ? null : FormatCursor(latest),
+            HasMore = false
+        });
+    }
+
+    private Task LockWorkspaceAsync(Guid workspaceId, CancellationToken cancellationToken) =>
+        _context.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({workspaceId.ToString()}, 0))", cancellationToken);
+
+    private async Task<IActionResult?> ValidateDeviceAsync(Guid deviceId, CancellationToken cancellationToken)
+    {
+        var hash = HashKey(GetSuppliedKey());
+        var token = await _context.SyncAccessTokens.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.TokenHash == hash && x.Ativo, cancellationToken);
+        return token?.DispositivoId is Guid registered && registered != deviceId
+            ? Unauthorized(new { message = "Este acesso pertence a outro dispositivo." })
+            : null;
+    }
+
     [HttpPost("push")]
     [RequestSizeLimit(8_000_000)]
     public async Task<IActionResult> Push(
@@ -325,112 +529,184 @@ public sealed class SyncController : ControllerBase
             request.EspacoId,
             cancellationToken);
         if (authorizationError is not null) return authorizationError;
+        var deviceError = await ValidateDeviceAsync(request.DispositivoId, cancellationToken);
+        if (deviceError is not null) return deviceError;
         if (request.Eventos is null || request.Eventos.Count > MaxBatchSize)
         {
             return BadRequest(new { message = $"Envie no maximo {MaxBatchSize} eventos por vez." });
         }
 
         await using var transaction = await _context.Database.BeginTransactionAsync(
-            IsolationLevel.Serializable, cancellationToken);
+            IsolationLevel.ReadCommitted, cancellationToken);
         try
         {
-        var response = new SyncPushResponseDto();
-        var incomingIds = request.Eventos.Select(x => x.Id).ToList();
-        var knownEventIds = await _context.Sincronizacoes
-            .AsNoTracking()
-            .Where(x => x.EspacoId == request.EspacoId && incomingIds.Contains(x.EventoId))
-            .Select(x => x.EventoId)
-            .ToHashSetAsync(cancellationToken);
-        var reservationState = await LoadReservationState(request.EspacoId, cancellationToken);
-        var timestamp = DateTime.UtcNow;
-        var tick = 0L;
+            await LockWorkspaceAsync(request.EspacoId, cancellationToken);
+            var workspace = await _context.EspacosSincronizacao
+                .FirstAsync(x => x.Id == request.EspacoId, cancellationToken);
+            var legacyComplete = workspace.DispositivoCargaInicialId is null &&
+                await _context.Sincronizacoes.AnyAsync(x => x.EspacoId == request.EspacoId, cancellationToken);
+            if (!workspace.CargaInicialConcluida &&
+                !legacyComplete &&
+                workspace.DispositivoCargaInicialId != request.DispositivoId)
+            {
+                return Conflict(new { message = "A primeira carga deve ser concluída no dispositivo que a iniciou." });
+            }
+            var response = new SyncPushResponseDto();
+            var incomingIds = request.Eventos.Select(x => x.Id).ToList();
+            var knownEventIds = await _context.Sincronizacoes
+                .AsNoTracking()
+                .Where(x => x.EspacoId == request.EspacoId && incomingIds.Contains(x.EventoId))
+                .Select(x => x.EventoId)
+                .ToHashSetAsync(cancellationToken);
+            var reservationState = await LoadReservationState(request.EspacoId, cancellationToken);
+            var customerState = await LoadCustomerState(request.EspacoId, cancellationToken);
+            var latestTimestamp = await _context.Sincronizacoes
+                .Where(x => x.EspacoId == request.EspacoId)
+                .MaxAsync(x => (DateTime?)x.DataHoraCriado, cancellationToken);
+            var timestamp = DateTime.UtcNow;
+            if (latestTimestamp >= timestamp) timestamp = latestTimestamp.Value.AddTicks(10);
+            timestamp = new DateTime(timestamp.Ticks - timestamp.Ticks % 10, DateTimeKind.Utc);
+            var tick = 0L;
 
-        foreach (var incoming in request.Eventos)
-        {
-            var entityName = incoming.Entidade?.Trim().ToLowerInvariant() ?? "";
-            var operation = incoming.Operacao?.Trim().ToLowerInvariant() ?? "";
-            if (incoming.Id == Guid.Empty ||
-                (incoming.EntidadeId is null || incoming.EntidadeId == Guid.Empty) ||
-                incoming.Dados.ValueKind != JsonValueKind.Object ||
-                !AllowedEntities.Contains(entityName) ||
-                operation is not ("criar" or "atualizar" or "excluir"))
+            foreach (var incoming in request.Eventos)
             {
-                return BadRequest(new { message = "O lote possui um evento inválido." });
-            }
-            if (incoming.Dados.TryGetProperty("id", out var payloadId) &&
-                (!Guid.TryParse(payloadId.ToString(), out var parsedId) ||
-                 parsedId != incoming.EntidadeId))
-            {
-                return BadRequest(new { message = "O ID do evento não corresponde aos dados." });
-            }
-            if (entityName == "reservas" && operation != "excluir" &&
-                ParseReservation(incoming.Dados, incoming.EntidadeId, operation) is null)
-            {
-                return BadRequest(new { message = "A reserva possui quarto ou datas inválidos." });
-            }
-            if (Encoding.UTF8.GetByteCount(incoming.Dados.GetRawText()) > MaxEventBytes)
-            {
-                return BadRequest(new { message = "Um evento excede o tamanho permitido." });
-            }
-            if (knownEventIds.Contains(incoming.Id))
-            {
-                response.EventosAceitos.Add(incoming.Id);
-                continue;
-            }
-
-            if (entityName == "reservas" && operation != "excluir")
-            {
-                var conflict = FindReservationConflict(
-                    incoming,
-                    reservationState.Values,
-                    request.DispositivoId);
-                if (conflict is not null)
+                var entityName = incoming.Entidade?.Trim().ToLowerInvariant() ?? "";
+                var operation = incoming.Operacao?.Trim().ToLowerInvariant() ?? "";
+                if (incoming.Id == Guid.Empty ||
+                    (incoming.EntidadeId is null || incoming.EntidadeId == Guid.Empty) ||
+                    incoming.Dados.ValueKind != JsonValueKind.Object ||
+                    !AllowedEntities.Contains(entityName) ||
+                    operation is not ("criar" or "atualizar" or "excluir"))
                 {
-                    response.Conflitos.Add(conflict);
-                    if (request.Atomico)
-                    {
-                        response.EventosAceitos.Clear();
-                        return Ok(response);
-                    }
+                    return BadRequest(new { message = "O lote possui um evento inválido." });
+                }
+                if (incoming.Dados.TryGetProperty("id", out var payloadId) &&
+                    (!Guid.TryParse(payloadId.ToString(), out var parsedId) ||
+                     parsedId != incoming.EntidadeId))
+                {
+                    return BadRequest(new { message = "O ID do evento não corresponde aos dados." });
+                }
+                if (entityName == "reservas" && operation != "excluir" &&
+                    ParseReservation(incoming.Dados, incoming.EntidadeId, operation) is null)
+                {
+                    return BadRequest(new { message = "A reserva possui quarto ou datas inválidos." });
+                }
+                if (Encoding.UTF8.GetByteCount(incoming.Dados.GetRawText()) > MaxEventBytes)
+                {
+                    return BadRequest(new { message = "Um evento excede o tamanho permitido." });
+                }
+                if (knownEventIds.Contains(incoming.Id))
+                {
+                    response.EventosAceitos.Add(incoming.Id);
                     continue;
+                }
+
+                if (entityName == "dados_empresa")
+                {
+                    TryGetString(incoming.Dados, "documento", out var rawDocument);
+                    TryGetString(incoming.Dados, "nome", out var companyName);
+                    var document = OnlyDigits(rawDocument);
+                    if (operation == "excluir" ||
+                        string.IsNullOrWhiteSpace(companyName) ||
+                        (workspace.DocumentoEmpresaHash is not null &&
+                         (!IsValidCompanyDocument(document) || HashText(document) != workspace.DocumentoEmpresaHash)))
+                        return BadRequest(new { message = "O CPF/CNPJ e o nome devem corresponder à pousada conectada." });
+                    var companyState = await _context.SyncEntityStates
+                        .FirstOrDefaultAsync(x => x.EspacoId == request.EspacoId && x.Entidade == "dados_empresa", cancellationToken);
+                    companyState ??= _context.SyncEntityStates.Local
+                        .FirstOrDefault(x => x.EspacoId == request.EspacoId && x.Entidade == "dados_empresa");
+                    if (companyState is not null && companyState.EntidadeId != incoming.EntidadeId)
+                        return Conflict(new { message = "Esta pousada já possui um cadastro empresarial. Baixe os dados antes de alterar." });
+                    workspace.Nome = Truncate(companyName.Trim(), 160);
+                    workspace.DataHoraAtualizado = timestamp;
+                }
+
+                if (entityName == "reservas" && operation != "excluir")
+                {
+                    var conflict = FindReservationConflict(
+                        incoming,
+                        reservationState.Values);
+                    if (conflict is not null)
+                    {
+                        response.Conflitos.Add(conflict);
+                        if (request.Atomico)
+                        {
+                            response.EventosAceitos.Clear();
+                            return Ok(response);
+                        }
+                        continue;
+                    }
+                }
+
+                if (entityName == "clientes" && operation != "excluir")
+                {
+                    var conflict = FindCustomerConflict(incoming, customerState.Values);
+                    if (conflict is not null)
+                    {
+                        response.Conflitos.Add(conflict);
+                        if (request.Atomico)
+                        {
+                            response.EventosAceitos.Clear();
+                            return Ok(response);
+                        }
+                        continue;
+                    }
+                }
+
+                var serverTime = timestamp.AddTicks(tick++ * 10);
+                var sync = new SincronizacaoEntity
+                {
+                    Id = Guid.NewGuid(),
+                    EspacoId = request.EspacoId,
+                    DispositivoId = request.DispositivoId,
+                    NomeDispositivo = request.NomeDispositivo?.Trim(),
+                    EventoId = incoming.Id,
+                    Entidade = entityName,
+                    EntidadeId = incoming.EntidadeId,
+                    Operacao = operation,
+                    Dados = incoming.Dados.GetRawText(),
+                    DataHoraCriado = serverTime,
+                    DataHoraAtualizado = serverTime,
+                    DataHoraSincronizado = serverTime,
+                    Forcado = incoming.Forcar
+                };
+                await _context.Sincronizacoes.AddAsync(sync, cancellationToken);
+                await UpsertCurrentStateAsync(
+                    request.EspacoId,
+                    entityName,
+                    incoming.EntidadeId.Value,
+                    operation,
+                    incoming.Dados.GetRawText(),
+                    serverTime,
+                    cancellationToken);
+                response.EventosAceitos.Add(incoming.Id);
+                knownEventIds.Add(incoming.Id);
+
+                if (entityName == "reservas" && incoming.EntidadeId.HasValue)
+                {
+                    reservationState[incoming.EntidadeId.Value] = sync;
+                }
+                if (entityName == "clientes" && incoming.EntidadeId.HasValue)
+                {
+                    if (operation == "excluir")
+                    {
+                        customerState.Remove(incoming.EntidadeId.Value);
+                    }
+                    else
+                    {
+                        customerState[incoming.EntidadeId.Value] = sync;
+                    }
                 }
             }
 
-            var serverTime = timestamp.AddTicks(tick++);
-            var sync = new SincronizacaoEntity
-            {
-                Id = Guid.NewGuid(),
-                EspacoId = request.EspacoId,
-                DispositivoId = request.DispositivoId,
-                NomeDispositivo = request.NomeDispositivo?.Trim(),
-                EventoId = incoming.Id,
-                Entidade = entityName,
-                EntidadeId = incoming.EntidadeId,
-                Operacao = operation,
-                Dados = incoming.Dados.GetRawText(),
-                DataHoraCriado = serverTime,
-                DataHoraAtualizado = serverTime,
-                DataHoraSincronizado = serverTime,
-                Forcado = incoming.Forcar
-            };
-            await _context.Sincronizacoes.AddAsync(sync, cancellationToken);
-            response.EventosAceitos.Add(incoming.Id);
-            knownEventIds.Add(incoming.Id);
-
-            if (entityName == "reservas" && incoming.EntidadeId.HasValue)
-            {
-                reservationState[incoming.EntidadeId.Value] = sync;
-            }
-        }
-
-        await _context.SaveChangesAsync(cancellationToken);
-        var lastEventTime = await _context.Sincronizacoes
-            .AsNoTracking()
-            .Where(x => x.EspacoId == request.EspacoId)
-            .MaxAsync(x => (DateTime?)x.DataHoraCriado, cancellationToken);
-        response.Cursor = lastEventTime?.ToString("O");
-        await transaction.CommitAsync(cancellationToken);
-        return Ok(response);
+            await _context.SaveChangesAsync(cancellationToken);
+            var lastEventTime = await _context.Sincronizacoes
+                .AsNoTracking()
+                .Where(x => x.EspacoId == request.EspacoId)
+                .MaxAsync(x => (DateTime?)x.DataHoraCriado, cancellationToken);
+            response.Cursor = lastEventTime?.ToString("O");
+            await transaction.CommitAsync(cancellationToken);
+            return Ok(response);
         }
         catch (Exception error) when (IsSerializationFailure(error))
         {
@@ -551,6 +827,42 @@ public sealed class SyncController : ControllerBase
         return Ok(new { evento = latest is null ? null : ToPullDto(latest) });
     }
 
+    [HttpGet("state")]
+    public async Task<IActionResult> CurrentState(
+        [FromQuery] Guid espacoId,
+        [FromQuery] bool incluirExcluidos,
+        CancellationToken cancellationToken)
+    {
+        if (espacoId == Guid.Empty)
+        {
+            return BadRequest(new { message = "Informe o codigo da hospedagem." });
+        }
+        var authorizationError = await ValidateAccessAsync(espacoId, cancellationToken);
+        if (authorizationError is not null) return authorizationError;
+
+        var query = _context.SyncEntityStates
+            .AsNoTracking()
+            .Where(x => x.EspacoId == espacoId);
+        if (!incluirExcluidos)
+        {
+            query = query.Where(x => !x.Excluido);
+        }
+
+        var states = await query
+            .OrderBy(x => x.Entidade)
+            .ThenBy(x => x.DataHoraAtualizado)
+            .Select(x => new
+            {
+                entidade = x.Entidade,
+                entidadeId = x.EntidadeId,
+                excluido = x.Excluido,
+                dados = x.Dados,
+                dataHoraAtualizado = x.DataHoraAtualizado
+            })
+            .ToListAsync(cancellationToken);
+        return Ok(new { total = states.Count, entidades = states });
+    }
+
     private string GetSuppliedKey() => Request.Headers["X-EasyStay-Key"].ToString();
 
     private static bool IsValidKey(string key) => key.Length is >= 32 and <= 256;
@@ -578,8 +890,45 @@ public sealed class SyncController : ControllerBase
     private static string NormalizeCompanyDocument(string? value) =>
         OnlyDigits(value ?? string.Empty);
 
-    private static bool IsValidCompanyDocument(string document) =>
-        document.Length is 11 or 14 && !document.All(character => character == document[0]);
+    private static bool IsValidCompanyDocument(string document)
+    {
+        if (document.Length is not (11 or 14) ||
+            document.Any(character => character is < '0' or > '9') ||
+            document.All(character => character == document[0]))
+        {
+            return false;
+        }
+
+        var digits = document.Select(character => character - '0').ToArray();
+        if (digits.Length == 11)
+        {
+            var firstSum = Enumerable.Range(0, 9)
+                .Sum(index => digits[index] * (10 - index));
+            var firstDigit = firstSum * 10 % 11;
+            if (firstDigit == 10) firstDigit = 0;
+            var secondSum = Enumerable.Range(0, 10)
+                .Sum(index => digits[index] * (11 - index));
+            var secondDigit = secondSum * 10 % 11;
+            if (secondDigit == 10) secondDigit = 0;
+            return digits[9] == firstDigit && digits[10] == secondDigit;
+        }
+
+        int CalculateCnpjDigit(int count)
+        {
+            var sum = 0;
+            var weight = count == 12 ? 5 : 6;
+            for (var index = 0; index < count; index++)
+            {
+                sum += digits[index] * weight;
+                weight = weight == 2 ? 9 : weight - 1;
+            }
+            var remainder = sum % 11;
+            return remainder < 2 ? 0 : 11 - remainder;
+        }
+
+        return digits[12] == CalculateCnpjDigit(12) &&
+               digits[13] == CalculateCnpjDigit(13);
+    }
 
     private static bool IsValidIdentifier(string identifier)
     {
@@ -622,10 +971,20 @@ public sealed class SyncController : ControllerBase
         return value.Length <= maxLength ? value : value[..maxLength];
     }
 
+    private async Task LockAuthAsync(string identifierHash, string document, CancellationToken cancellationToken)
+    {
+        await _context.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({"auth-contact:" + identifierHash}, 0))", cancellationToken);
+        if (!string.IsNullOrEmpty(document))
+            await _context.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock(hashtextextended({"auth-company:" + HashText(document)}, 0))", cancellationToken);
+    }
+
     private async Task<EspacoSincronizacaoEntity> GetOrCreateWorkspaceAsync(
         string identifier,
         string identifierHash,
         string? companyDocumentHash,
+        string? companyName,
         CancellationToken cancellationToken)
     {
         var workspace = await _context.EspacosSincronizacao
@@ -642,7 +1001,11 @@ public sealed class SyncController : ControllerBase
                 workspace.Ativo = true;
                 workspace.DataHoraDeletado = null;
             }
-            if (string.IsNullOrWhiteSpace(workspace.Nome))
+            if (!string.IsNullOrWhiteSpace(companyName))
+            {
+                workspace.Nome = Truncate(companyName.Trim(), 160);
+            }
+            else if (string.IsNullOrWhiteSpace(workspace.Nome))
             {
                 workspace.Nome = BuildWorkspaceName(identifier);
             }
@@ -666,13 +1029,63 @@ public sealed class SyncController : ControllerBase
             IdentificadorHash = identifierHash,
             DocumentoEmpresaHash = companyDocumentHash,
             ChaveHash = HashKey(GenerateAccessKey()),
-            Nome = BuildWorkspaceName(identifier),
+            Nome = string.IsNullOrWhiteSpace(companyName)
+                ? BuildWorkspaceName(identifier)
+                : Truncate(companyName.Trim(), 160),
             Ativo = true,
             DataHoraCriado = now,
             DataHoraAtualizado = now
         };
         await _context.EspacosSincronizacao.AddAsync(workspace, cancellationToken);
         return workspace;
+    }
+
+    private async Task UpsertCurrentStateAsync(
+        Guid workspaceId,
+        string entity,
+        Guid entityId,
+        string operation,
+        string data,
+        DateTime timestamp,
+        CancellationToken cancellationToken)
+    {
+        var state = _context.SyncEntityStates.Local.FirstOrDefault(
+            x => x.EspacoId == workspaceId &&
+                 x.Entidade == entity &&
+                 x.EntidadeId == entityId);
+        state ??= await _context.SyncEntityStates.FirstOrDefaultAsync(
+            x => x.EspacoId == workspaceId &&
+                 x.Entidade == entity &&
+                 x.EntidadeId == entityId,
+            cancellationToken);
+        if (state is null)
+        {
+            await _context.SyncEntityStates.AddAsync(new SyncEntityStateEntity
+            {
+                Id = Guid.NewGuid(),
+                EspacoId = workspaceId,
+                Entidade = entity,
+                EntidadeId = entityId,
+                Dados = data,
+                Excluido = operation == "excluir",
+                DataHoraOrigem = timestamp,
+                DataHoraCriado = timestamp,
+                DataHoraAtualizado = timestamp
+            }, cancellationToken);
+            return;
+        }
+
+        if (operation == "excluir")
+        {
+            var previous = JsonNode.Parse(state.Dados)!.AsObject();
+            foreach (var item in JsonNode.Parse(data)!.AsObject())
+                previous[item.Key] = item.Value?.DeepClone();
+            data = previous.ToJsonString();
+        }
+        state.Dados = data;
+        state.Excluido = operation == "excluir";
+        state.DataHoraOrigem = timestamp;
+        state.DataHoraAtualizado = timestamp;
     }
 
     private static string BuildWorkspaceName(string identifier)
@@ -852,10 +1265,27 @@ public sealed class SyncController : ControllerBase
         return events.ToDictionary(x => x.EntidadeId!.Value);
     }
 
+    private async Task<Dictionary<Guid, SincronizacaoEntity>> LoadCustomerState(
+        Guid workspaceId,
+        CancellationToken cancellationToken)
+    {
+        var events = await _context.Sincronizacoes
+            .FromSqlInterpolated($"""
+                SELECT DISTINCT ON (entidade_id) *
+                FROM sincronizacoes
+                WHERE espaco_id = {workspaceId}
+                  AND entidade = 'clientes'
+                  AND entidade_id IS NOT NULL
+                ORDER BY entidade_id, data_hora_criado DESC, id DESC
+                """)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+        return events.ToDictionary(x => x.EntidadeId!.Value);
+    }
+
     private static SyncConflictDto? FindReservationConflict(
         SyncPushEventDto incoming,
-        IEnumerable<SincronizacaoEntity> currentReservations,
-        Guid deviceId)
+        IEnumerable<SincronizacaoEntity> currentReservations)
     {
         var local = ParseReservation(incoming.Dados, incoming.EntidadeId, incoming.Operacao);
         if (local is null || !local.IsActive) return null;
@@ -863,7 +1293,6 @@ public sealed class SyncController : ControllerBase
         foreach (var current in currentReservations)
         {
             if (current.EntidadeId == incoming.EntidadeId ||
-                current.DispositivoId == deviceId ||
                 string.IsNullOrWhiteSpace(current.Dados))
             {
                 continue;
@@ -891,6 +1320,41 @@ public sealed class SyncController : ControllerBase
         return null;
     }
 
+    private static SyncConflictDto? FindCustomerConflict(
+        SyncPushEventDto incoming,
+        IEnumerable<SincronizacaoEntity> currentCustomers)
+    {
+        var local = ParseCustomer(incoming.Dados, incoming.EntidadeId, incoming.Operacao);
+        if (local is null || !local.IsActive) return null;
+
+        foreach (var current in currentCustomers)
+        {
+            if (current.EntidadeId == incoming.EntidadeId ||
+                string.IsNullOrWhiteSpace(current.Dados))
+            {
+                continue;
+            }
+            using var document = JsonDocument.Parse(current.Dados);
+            var remote = ParseCustomer(document.RootElement, current.EntidadeId, current.Operacao);
+            if (remote is null || !remote.IsActive ||
+                !string.Equals(local.Document, remote.Document, StringComparison.Ordinal))
+            {
+                continue;
+            }
+            return new SyncConflictDto
+            {
+                FilaId = incoming.Id,
+                Entidade = "clientes",
+                EntidadeId = incoming.EntidadeId,
+                Tipo = "cliente_cpf_duplicado",
+                Mensagem = "Já existe um cliente com este CPF nesta hospedagem.",
+                DadosLocais = incoming.Dados.Clone(),
+                DadosRemotos = document.RootElement.Clone()
+            };
+        }
+        return null;
+    }
+
     private static ReservationSnapshot? ParseReservation(
         JsonElement data,
         Guid? id,
@@ -910,10 +1374,28 @@ public sealed class SyncController : ControllerBase
         return new ReservationSnapshot(id, room, start, end, status != 4 && !deleted);
     }
 
+    private static CustomerSnapshot? ParseCustomer(
+        JsonElement data,
+        Guid? id,
+        string? operation)
+    {
+        if (operation == "excluir" || data.ValueKind != JsonValueKind.Object) return null;
+        if (!TryGetString(data, "CPF", out var document) &&
+            !TryGetString(data, "documentNumber", out document))
+        {
+            return null;
+        }
+        document = OnlyDigits(document);
+        if (document.Length != 11) return null;
+        var deleted = data.TryGetProperty("DataHoraDeletado", out var deletedValue) &&
+                      deletedValue.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined;
+        return new CustomerSnapshot(id, document, !deleted);
+    }
+
     private static bool TryGetString(JsonElement element, string name, out string value)
     {
         value = string.Empty;
-        if (!element.TryGetProperty(name, out var property)) return false;
+        if (!TryGetProperty(element, name, out var property)) return false;
         value = property.ToString();
         return !string.IsNullOrWhiteSpace(value);
     }
@@ -921,15 +1403,28 @@ public sealed class SyncController : ControllerBase
     private static bool TryGetDate(JsonElement element, string name, out DateTime value)
     {
         value = default;
-        return element.TryGetProperty(name, out var property) &&
+        return TryGetProperty(element, name, out var property) &&
                DateTime.TryParse(property.ToString(), out value);
     }
 
     private static bool TryGetInt(JsonElement element, string name, out int value)
     {
         value = default;
-        return element.TryGetProperty(name, out var property) &&
+        return TryGetProperty(element, name, out var property) &&
                int.TryParse(property.ToString(), out value);
+    }
+
+    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.TryGetProperty(name, out value)) return true;
+        foreach (var property in element.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+            value = property.Value;
+            return true;
+        }
+        value = default;
+        return false;
     }
 
     private static SyncPullEventDto ToPullDto(SincronizacaoEntity entity)
@@ -953,6 +1448,11 @@ public sealed class SyncController : ControllerBase
         string RoomId,
         DateTime Start,
         DateTime End,
+        bool IsActive);
+
+    private sealed record CustomerSnapshot(
+        Guid? Id,
+        string Document,
         bool IsActive);
 
     private sealed record SyncedUser(Guid UserId, string? Email);

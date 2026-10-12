@@ -40,6 +40,9 @@ public sealed class SyncAuthCodeVerifyDto
 
     [JsonPropertyName("nomeDispositivo")]
     public string? NomeDispositivo { get; set; }
+
+    [JsonPropertyName("nomeEmpresa")]
+    public string? NomeEmpresa { get; set; }
 }
 
 public sealed class SyncCompanyDocumentCheckDto
@@ -64,6 +67,18 @@ public sealed class SyncPushRequestDto
 
     [JsonPropertyName("atomico")]
     public bool Atomico { get; set; }
+}
+
+public sealed class SyncBootstrapRequestDto
+{
+    [JsonPropertyName("espacoId")]
+    public Guid EspacoId { get; set; }
+
+    [JsonPropertyName("dispositivoId")]
+    public Guid DispositivoId { get; set; }
+
+    [JsonPropertyName("concluir")]
+    public bool Concluir { get; set; }
 }
 
 public sealed class SyncPushEventDto

@@ -22,6 +22,7 @@ public class AppDbContext : DbContext
     public DbSet<ReservaEntity> Reservas { get; set; }
     public DbSet<SyncAccessTokenEntity> SyncAccessTokens { get; set; }
     public DbSet<SyncAuthCodeEntity> SyncAuthCodes { get; set; }
+    public DbSet<SyncEntityStateEntity> SyncEntityStates { get; set; }
     public DbSet<SincronizacaoEntity> Sincronizacoes { get; set; }
     public DbSet<UsuarioEntity> Usuarios { get; set; }
 
@@ -41,6 +42,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<ReservaEntity>().ToTable("reservas");
         modelBuilder.Entity<SyncAccessTokenEntity>().ToTable("sync_access_tokens");
         modelBuilder.Entity<SyncAuthCodeEntity>().ToTable("sync_auth_codes");
+        modelBuilder.Entity<SyncEntityStateEntity>().ToTable("sync_entidades");
         modelBuilder.Entity<SincronizacaoEntity>().ToTable("sincronizacoes");
         modelBuilder.Entity<UsuarioEntity>().ToTable("usuarios");
 
@@ -56,6 +58,7 @@ public class AppDbContext : DbContext
         ConfigurarAuditoria<ReservaEntity>(modelBuilder);
         ConfigurarAuditoria<SyncAccessTokenEntity>(modelBuilder);
         ConfigurarAuditoria<SyncAuthCodeEntity>(modelBuilder);
+        ConfigurarAuditoria<SyncEntityStateEntity>(modelBuilder);
         ConfigurarAuditoria<SincronizacaoEntity>(modelBuilder);
         ConfigurarAuditoria<UsuarioEntity>(modelBuilder);
 
@@ -165,6 +168,18 @@ public class AppDbContext : DbContext
             entity.HasIndex(x => new
                 { x.IdentificadorHash, x.DocumentoEmpresaHash, x.ExpiraEm })
                 .HasDatabaseName("ix_sync_auth_codes_ident_doc_expira");
+        });
+
+        modelBuilder.Entity<SyncEntityStateEntity>(entity =>
+        {
+            entity.Property(x => x.Entidade).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Dados).HasColumnType("jsonb").IsRequired();
+            entity.HasIndex(x => new { x.EspacoId, x.Entidade, x.EntidadeId }).IsUnique();
+            entity.HasIndex(x => new { x.EspacoId, x.Excluido });
+            entity.HasOne<EspacoSincronizacaoEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.EspacoId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ConfiguracaoSistemaEntity>(entity =>
