@@ -1,0 +1,10 @@
+.git
+.idea
+**/bin
+**/obj
+tests
+test-output
+appsettings.Development.json
+*.user
+*.local.json
+*.env

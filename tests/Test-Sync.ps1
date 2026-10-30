@@ -6,9 +6,18 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if ([string]::IsNullOrWhiteSpace($ConnectionString)) {
+    $settingsFile = Join-Path $root 'appsettings.Development.json'
+    if (Test-Path -LiteralPath $settingsFile) {
+        $settings = Get-Content -LiteralPath $settingsFile -Raw | ConvertFrom-Json
+        $ConnectionString = $settings.ConnectionStrings.DefaultConnection
+    }
     $secretFile = Join-Path $env:APPDATA 'Microsoft\UserSecrets\ApiEasyStay-Local-2026\secrets.json'
-    $secrets = Get-Content $secretFile -Raw | ConvertFrom-Json
-    $ConnectionString = $secrets.'ConnectionStrings:DefaultConnection'
+    if (Test-Path -LiteralPath $secretFile) {
+        $secrets = Get-Content -LiteralPath $secretFile -Raw | ConvertFrom-Json
+        if (![string]::IsNullOrWhiteSpace($secrets.'ConnectionStrings:DefaultConnection')) {
+            $ConnectionString = $secrets.'ConnectionStrings:DefaultConnection'
+        }
+    }
 }
 if ([string]::IsNullOrWhiteSpace($ConnectionString)) {
     throw 'Configure ConnectionStrings__DefaultConnection ou os User Secrets da API.'
@@ -56,9 +65,12 @@ function New-ReservationEvent($reservationId, $roomId, [int]$status) {
         dados = @{
             id = $reservationId
             quartoId = $roomId
+            clienteId = $script:reservationCustomer
             dataEntrada = '2026-12-20'
             dataSaida = '2026-12-23'
             status = $status
+            'quantidadeHóspedes' = 1
+            valorTotal = 100
         }
     }
 }
@@ -93,6 +105,12 @@ function Send-ConcurrentRequests($route, $bodies, $requestHeaders = @{}) {
 
 try {
     $cpf = New-TestCpf
+    $phoneRequest = @{identificador='51999999999'; documentoEmpresa=$cpf} | ConvertTo-Json
+    $phoneResult = Invoke-WebRequest -Method Post -Uri "$base/auth/request-code" -ContentType 'application/json' -Body $phoneRequest -SkipHttpErrorCheck
+    if ($phoneResult.StatusCode -ne 400) { throw 'A API aceitou telefone para envio de codigo.' }
+    $phoneVerify = @{identificador='51999999999'; codigo='123456'; dispositivoId=$device} | ConvertTo-Json
+    $phoneVerifyResult = Invoke-WebRequest -Method Post -Uri "$base/auth/verify-code" -ContentType 'application/json' -Body $phoneVerify -SkipHttpErrorCheck
+    if ($phoneVerifyResult.StatusCode -ne 400) { throw 'A API aceitou telefone para validar codigo.' }
     $invalidDocument = Invoke-WebRequest -Method Post `
         -Uri "$base/company-document/check" -ContentType 'application/json' `
         -Body '{"documentoEmpresa":"12345678901"}' -SkipHttpErrorCheck
@@ -174,12 +192,19 @@ try {
     }
     $firstCustomer = [guid]::NewGuid()
     $firstBusiness = [guid]::NewGuid()
+    $firstRole = [guid]::NewGuid()
+    $firstUser = [guid]::NewGuid()
     $firstLoad = @{
         espacoId = $authWorkspace; dispositivoId = $device
         eventos = @(@{ id = [guid]::NewGuid(); entidade = 'dados_empresa'; entidadeId = $firstBusiness
             operacao = 'criar'; dados = @{ id = $firstBusiness; nome = 'Pousada teste'; documento = $cpf; email = $authEmail } },
             @{ id = [guid]::NewGuid(); entidade = 'clientes'; entidadeId = $firstCustomer
-            operacao = 'criar'; dados = @{ id = $firstCustomer; nome = 'Cliente CPF'; Cpf = '52998224725' } })
+            operacao = 'criar'; dados = @{ id = $firstCustomer; nome = 'Cliente CPF'; Cpf = '52998224725' } },
+            @{ id = [guid]::NewGuid(); entidade = 'perfis'; entidadeId = $firstRole
+               operacao = 'criar'; dados = @{ nome = 'Admin'; actions = @('Reservation.View') } },
+            @{ id = [guid]::NewGuid(); entidade = 'usuarios'; entidadeId = $firstUser
+               operacao = 'criar'; dados = @{ nome = 'Admin'; email = $authEmail; perfilId = $firstRole
+               senha = 'pbkdf2_sha256$600000$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' } })
     } | ConvertTo-Json -Depth 8
     Invoke-RestMethod -Method Post -Uri "$base/push" -Headers $firstHeaders `
         -ContentType 'application/json' -Body $firstLoad | Out-Null
@@ -190,7 +215,7 @@ try {
         -Headers $secondHeaders -ContentType 'application/json' -Body $secondBegin
     $snapshot = Invoke-RestMethod -Uri "$base/snapshot?espacoId=$authWorkspace" -Headers $secondHeaders
     if ($secondBootstrap.source -ne 'cloud' -or !$secondBootstrap.completed -or
-        $snapshot.eventos.Count -ne 2 -or $snapshot.eventos[0].dados.documento -ne $cpf -or
+        $snapshot.eventos.Count -ne 4 -or $snapshot.eventos[0].dados.documento -ne $cpf -or
         [string]::IsNullOrWhiteSpace($snapshot.cursor)) {
         throw 'O segundo dispositivo não recebeu uma cópia completa com cursor.'
     }
@@ -204,6 +229,13 @@ try {
     if ($duplicate.conflitos.Count -ne 1 -or $duplicate.conflitos[0].tipo -ne 'cliente_cpf_duplicado') {
         throw 'A API não identificou o CPF duplicado recebido com caixa/formato diferentes.'
     }
+    $duplicateUser = @{espacoId=$authWorkspace; dispositivoId=$secondDevice; eventos=@(@{
+        id=[guid]::NewGuid(); entidade='usuarios'; entidadeId=[guid]::NewGuid(); operacao='criar'
+        dados=@{nome='Duplicado'; email=$authEmail.ToUpperInvariant(); perfilId=$firstRole
+            senha='pbkdf2_sha256$600000$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'}
+    })} | ConvertTo-Json -Depth 8
+    $duplicateUserResult = Invoke-RestMethod -Method Post "$base/push" -Headers $secondHeaders -ContentType 'application/json' -Body $duplicateUser
+    if ($duplicateUserResult.conflitos[0].tipo -ne 'usuario_email_duplicado') { throw 'A API aceitou usuarios com e-mail repetido.' }
 
     $otherCompany = @{ identificador = $authEmail; documentoEmpresa = (New-TestCpf) } | ConvertTo-Json
     $sameContact = Invoke-WebRequest -Method Post -Uri "$base/auth/request-code" `
@@ -255,12 +287,17 @@ try {
     if (@($state.entidades | Where-Object entidade -EQ 'clientes').Count -ne 501) {
         throw 'A nuvem não guardou todos os clientes da primeira carga.'
     }
+    $replay = Send-Events @($events[0])
+    $state = Invoke-RestMethod -Uri $stateUrl -Headers $headers
+    if ($replay.eventosAceitos.Count -ne 1 -or @($state.entidades | Where-Object entidade -EQ 'clientes').Count -ne 501) {
+        throw 'Reenvio do mesmo evento duplicou o registro.'
+    }
 
     $sharedRoom = [guid]::NewGuid()
     $roomBatch = @(
         @{
             id = [guid]::NewGuid(); entidade = 'quartos'; entidadeId = $sharedRoom
-            operacao = 'criar'; dados = @{ id = $sharedRoom; nome = 'Quarto A' }
+            operacao = 'criar'; dados = @{ id = $sharedRoom; nome = 'Quarto A'; capacidade = 2; status = 0 }
         },
         @{
             id = [guid]::NewGuid(); entidade = 'quartos'; entidadeId = $sharedRoom
@@ -291,6 +328,11 @@ try {
 
     $roomA = [guid]::NewGuid()
     $roomB = [guid]::NewGuid()
+    $raceRoom = [guid]::NewGuid()
+    $script:reservationCustomer = $events[0].entidadeId
+    Send-Events @(@($roomA, $roomB, $raceRoom) | ForEach-Object {
+        @{id=[guid]::NewGuid(); entidade='quartos'; entidadeId=$_.ToString(); operacao='criar'; dados=@{nome='Quarto de teste'; capacidade=2; status=0}}
+    }) | Out-Null
     $reservationA = [guid]::NewGuid()
     $reservationB = [guid]::NewGuid()
     $initial = Send-Events @(
@@ -299,7 +341,6 @@ try {
     )
     if ($initial.eventosAceitos.Count -ne 2) { throw 'Reservas iniciais rejeitadas.' }
 
-    $raceRoom = [guid]::NewGuid()
     $raceBodies = @(foreach ($raceDevice in @($device, $secondDevice)) {
         @{ espacoId = $workspace; dispositivoId = $raceDevice; atomico = $true
             eventos = @((New-ReservationEvent ([guid]::NewGuid()) $raceRoom 1)) } | ConvertTo-Json -Depth 8
@@ -343,7 +384,94 @@ try {
         throw 'A rota latest não retornou o estado protegido esperado.'
     }
 
-    Write-Output 'OK: código de uso único, primeira carga exclusiva, empresa, snapshot, dois dispositivos, paginação, CPF e reservas simultâneas.'
+    $profileId = [guid]::NewGuid()
+    $profileResult = Send-Events @(
+        @{ id = [guid]::NewGuid(); entidade = 'perfis'; entidadeId = $profileId
+           operacao = 'criar'; dados = @{ id = $profileId; nome = 'Recepcao'; perfilInterno = 1;
+               actions = @('reservas.listar', 'reservas.criar'); DataHoraCriado = '2026-10-12T12:00:00Z' } },
+        @{ id = [guid]::NewGuid(); entidade = 'perfis'; entidadeId = $profileId
+           operacao = 'atualizar'; dados = @{ nome = 'Recepcao atualizada'; actions = @('reservas.listar') } }
+    )
+    if ($profileResult.eventosAceitos.Count -ne 2) { throw 'Alteração parcial do perfil rejeitada.' }
+    $profileSnapshot = Invoke-RestMethod -Uri "$base/snapshot?espacoId=$workspace" -Headers $headers
+    $profile = @($profileSnapshot.eventos | Where-Object entidadeId -EQ $profileId.ToString())
+    if ($profile.Count -ne 1 -or $profile[0].dados.perfilInterno -ne 1 -or
+        !$profile[0].dados.DataHoraCriado -or $profile[0].dados.actions.Count -ne 1) {
+        throw 'O snapshot perdeu campos do perfil após uma alteração parcial.'
+    }
+
+    $upperRoom = New-ReservationEvent ([guid]::NewGuid()) $raceRoom.ToString().ToUpperInvariant() 1
+    $caseConflict = Send-Events @($upperRoom) $true
+    if ($caseConflict.conflitos.Count -ne 1) { throw 'O UUID em maiúsculas permitiu uma reserva sobreposta.' }
+
+    $deletedId = [guid]::NewGuid()
+    Send-Events @(@{ id = [guid]::NewGuid(); entidade = 'clientes'; entidadeId = $deletedId
+        operacao = 'criar'; dados = @{ id = $deletedId; nome = 'Excluido'; dataHoraDeletado = '2026-10-12T12:00:00Z' } }) | Out-Null
+    $state = Invoke-RestMethod -Uri $stateUrl -Headers $headers
+    if (@($state.entidades | Where-Object entidadeId -EQ $deletedId.ToString()).Count -ne 0) {
+        throw 'O estado ativo inclui um registro com data de exclusão.'
+    }
+
+    $versioned = @{ id=[guid]::NewGuid(); entidade='quartos'; entidadeId=$sharedRoom; operacao='atualizar'
+        versaoBase=$roomBatch[1].id; dados=@{nome='Edicao recente'} }
+    $versionResult = Send-Events @($versioned)
+    $staleEvent = @{id=[guid]::NewGuid(); entidade='quartos'; entidadeId=$sharedRoom; operacao='atualizar'
+        versaoBase=$roomBatch[1].id; dados=@{nome='Edicao antiga offline'}}
+    $staleResult = Send-Events @($staleEvent)
+    if ($versionResult.eventosAceitos.Count -ne 1 -or $staleResult.conflitos[0].tipo -ne 'registro_desatualizado') {
+        throw 'Uma edicao offline sobrescreveu um registro mais recente.'
+    }
+    $orphan = New-ReservationEvent ([guid]::NewGuid()) ([guid]::NewGuid()) 1
+    $orphanResult = Send-Events @($orphan)
+    if ($orphanResult.conflitos[0].tipo -ne 'dados_invalidos') { throw 'A API aceitou uma reserva sem dependencias.' }
+    $invalidStatus = New-ReservationEvent ([guid]::NewGuid()) $sharedRoom 1
+    $invalidStatus.dados.status = 'invalido'
+    $invalidStatusResult = Send-Events @($invalidStatus)
+    if ($invalidStatusResult.conflitos[0].tipo -ne 'dados_invalidos') { throw 'A API nao tratou status malformado.' }
+    $otherTenant = Invoke-WebRequest "$base/pull?espacoId=$authWorkspace" -Headers $headers -SkipHttpErrorCheck
+    if ($otherTenant.StatusCode -ne 401) { throw 'Uma chave acessou outra pousada.' }
+    Invoke-RestMethod -Method Post "$base/auth/revoke" -Headers $secondHeaders -ContentType 'application/json' -Body $secondBegin | Out-Null
+    $revoked = Invoke-WebRequest "$base/health?espacoId=$authWorkspace" -Headers $secondHeaders -SkipHttpErrorCheck
+    if ($revoked.StatusCode -ne 401) { throw 'A chave revogada continuou funcionando.' }
+
+    $runtime = Get-ChildItem "$env:ProgramFiles\dotnet\shared\Microsoft.AspNetCore.App" -Directory | Where-Object Name -Like '10.*' | Sort-Object Name -Descending | Select-Object -First 1
+    Add-Type -Path (Join-Path $runtime.FullName 'Microsoft.Extensions.Logging.Abstractions.dll')
+    Add-Type -Path (Join-Path $root 'bin\Debug\net10.0\Npgsql.dll')
+    $expiryConnection = [Npgsql.NpgsqlConnection]::new($ConnectionString)
+    try {
+        $expiryConnection.Open()
+        $expiry = $expiryConnection.CreateCommand()
+        $expiry.CommandText = "UPDATE sync_access_tokens SET data_hora_criado=NOW()-INTERVAL '366 days' WHERE espaco_id=@id;"
+        [void]$expiry.Parameters.AddWithValue('id', $authWorkspace)
+        [void]$expiry.ExecuteNonQuery()
+    } finally { $expiryConnection.Dispose() }
+    $expired = Invoke-WebRequest "$base/health?espacoId=$authWorkspace" -Headers $firstHeaders -SkipHttpErrorCheck
+    if ($expired.StatusCode -ne 401) { throw 'A chave expirada continuou funcionando.' }
+    $bruteChallenge = Invoke-RestMethod -Method Post "$base/auth/request-code" -ContentType 'application/json' -Body $authRequest
+    $wrongCode = if ($bruteChallenge.codigoDesenvolvimento -eq '000000') { '111111' } else { '000000' }
+    foreach ($attempt in 1..5) {
+        $badCode = @{identificador=$authEmail; documentoEmpresa=$cpf; codigo=$wrongCode; dispositivoId=$device} | ConvertTo-Json
+        $denied = Invoke-WebRequest -Method Post "$base/auth/verify-code" -ContentType 'application/json' -Body $badCode -SkipHttpErrorCheck
+        if ($denied.StatusCode -ne 401) { throw 'Tentativa incorreta foi aceita.' }
+    }
+    $blockedCode = @{identificador=$authEmail; documentoEmpresa=$cpf; codigo=$bruteChallenge.codigoDesenvolvimento; dispositivoId=$device} | ConvertTo-Json
+    $locked = Invoke-WebRequest -Method Post "$base/auth/verify-code" -ContentType 'application/json' -Body $blockedCode -SkipHttpErrorCheck
+    if ($locked.StatusCode -ne 401) { throw 'O limite de tentativas foi ignorado.' }
+    foreach ($attempt in 1..7) {
+        Invoke-RestMethod -Method Post "$base/auth/request-code" -ContentType 'application/json' -Body $authRequest | Out-Null
+    }
+    $quota = Invoke-WebRequest -Method Post "$base/auth/request-code" -ContentType 'application/json' -Body $authRequest -SkipHttpErrorCheck
+    if ($quota.StatusCode -ne 429) { throw 'O limite persistente por contato foi ignorado.' }
+    $deletedRoom = [guid]::NewGuid()
+    $createdDeleted = Send-Events @(@{id=[guid]::NewGuid(); entidade='quartos'; entidadeId=$deletedRoom; operacao='criar'; dados=@{nome='Quarto excluido'; capacidade=2; status=0}})
+    if ($createdDeleted.eventosAceitos.Count -ne 1) { throw 'Quarto de teste nao criado.' }
+    $deletedResult = Send-Events @(@{id=[guid]::NewGuid(); entidade='quartos'; entidadeId=$deletedRoom; operacao='excluir'; dados=@{id=$deletedRoom; DataHoraDeletado='2026-10-29T12:00:00Z'}})
+    if ($deletedResult.eventosAceitos.Count -ne 1) { throw 'Quarto sem vinculos nao foi excluido.' }
+    $deletedReference = Send-Events @((New-ReservationEvent ([guid]::NewGuid()) $deletedRoom 1))
+    if ($deletedReference.eventosAceitos.Count -ne 0 -or $deletedReference.conflitos[0].tipo -ne 'dados_invalidos') {
+        throw 'A API aceitou uma reserva para quarto excluido.'
+    }
+    Write-Output 'OK: autenticacao, carga inicial, snapshot, paginacao, idempotencia, concorrencia, rollback, versoes offline, dependencias, isolamento, revogacao e expiracao.'
 }
 finally {
     $runtime = Get-ChildItem "$env:ProgramFiles\dotnet\shared\Microsoft.AspNetCore.App" `

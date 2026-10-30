@@ -3,17 +3,45 @@
 API de sincronização do Easy Stay. Os endpoints CRUD genéricos estão desativados
 até que exista autorização por usuário e isolamento por hospedagem. As rotas
 ativas ficam em `api/v1/sync`: validação de documento, autenticação por código,
-`health`, `bootstrap`, `snapshot`, `push`, `pull`, `latest` e `state`.
+`health`, `bootstrap`, `snapshot`, `push`, `pull`, `latest`, `state` e `auth/revoke`.
+
+Publicacao: [DEPLOYMENT.md](DEPLOYMENT.md). Seguranca, correcoes e limites:
+[SECURITY_REVIEW.md](SECURITY_REVIEW.md). O `Dockerfile` usa .NET 10 sem usuario root.
+Envio de codigos: somente e-mail. Configure seu Gmail com `./Configure-Gmail.ps1`;
+o campo do remetente e `Smtp.Username`. Veja [EMAIL_SETUP.md](EMAIL_SETUP.md).
 
 ## Desenvolvimento
 
-Configure o PostgreSQL local e a conexão com User Secrets:
+Configure o PostgreSQL local. A conexao pode ficar em `appsettings.Local.json`:
+
+```powershell
+Copy-Item appsettings.Local.example.json appsettings.Local.json
+```
+
+Preencha `ConnectionStrings:DefaultConnection` nesse arquivo com a porta, banco,
+usuario e senha do seu PostgreSQL. Ele e ignorado pelo Git, carregado somente em
+Development e excluido da publicacao. Nao copie o exemplo sobre uma configuracao
+local que ja esteja preenchida.
+
+Os User Secrets continuam funcionando e tem prioridade sobre o arquivo local.
+Variaveis de ambiente e argumentos da linha de comando tem prioridade sobre ambos.
+Como alternativa ao arquivo, configure a conexao com:
 
 ```powershell
 dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5433;Database=easy_stay;Username=SEU_USUARIO;Password=SUA_SENHA"
-dotnet ef database update
-dotnet run --launch-profile local-network
 ```
+
+Inicie na pasta da API:
+
+```powershell
+dotnet run
+```
+
+Os perfis locais definem `DOTNET_ENVIRONMENT` e `ASPNETCORE_ENVIRONMENT` como
+`Development`, mesmo que o terminal tenha herdado outro ambiente. O perfil
+`local-network` tambem pode ser escolhido explicitamente. Em Development, a API
+aplica as migracoes ao iniciar. Para conferir API e banco, abra
+`http://localhost:5000/health/ready` e confira a resposta `{"status":"ready"}`.
 
 Em produção, forneça `ConnectionStrings__DefaultConnection` pelo ambiente ou
 gerenciador de segredos. A API rejeita HTTP fora do ambiente Development;
@@ -29,6 +57,10 @@ sincronização deve apontar para a mesma hospedagem em todos os dispositivos.
 ## Protocolo
 
 - Após validar o código, o token fica associado ao dispositivo.
+- Tokens expiram em 90 dias por padrao. A remocao da conexao tenta revogar o token.
+- Atualizacoes de registros existentes em producao exigem `versaoBase`, o UUID
+  `idEvento` da ultima versao recebida. Um envio desatualizado vira pendencia.
+  Publique a nova versao do app junto com esta API.
 - `POST bootstrap` identifica se este aparelho cria a primeira carga ou baixa
   a nuvem existente. A carga incompleta fica exclusiva do aparelho de origem.
   Ele chama `bootstrap` com `concluir=true` depois de enviar os registros.
@@ -48,13 +80,12 @@ O perfil `local-network` permite HTTP na rede local em Development. Reinicie
 a API depois de alterar código. Se a compilação disser que o executável está
 em uso, encerre a execução anterior pelo terminal/IDE antes de compilar.
 
-Sem SMTP em Development, os códigos ficam no terminal da API. Não existe
-envio real por WhatsApp sem configurar um provedor de entrega. Configure o
-SMTP para e-mail; a API deve falhar de forma explícita se não houver entrega
-configurada fora do ambiente de desenvolvimento.
+O envio real usa SMTP com TLS. Sem remetente e senha de app configurados, a API
+informa a falha e nao simula entrega. O codigo de console e exclusivo de testes:
+exige Development e `Sync:UseDevelopmentConsole=true`, desativado por padrao.
 
-Com a API de desenvolvimento em execução, rode
-`pwsh -File tests/Test-Sync.ps1 -ApiBaseUrl http://127.0.0.1:5000` para
-verificar código de acesso, primeira carga, estado atual, paginação, múltiplos
-dispositivos, conflitos e rollback atômico. O teste cria hospedagens temporárias
-e remove seus dados ao terminar.
+Depois de compilar, rode `pwsh -File tests/Test-Isolated.ps1` para validar a API
+em outro processo e banco descartavel. Use `-AppProject` com a pasta Flutter
+para testar tambem o envio e download reais. O script configura o canal de
+codigo simulado e o cooldown de desenvolvimento apenas para esse processo.
+As credenciais de producao nao devem ficar em arquivos versionados.

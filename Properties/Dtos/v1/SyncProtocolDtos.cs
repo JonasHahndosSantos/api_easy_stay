@@ -3,6 +3,20 @@ using System.Text.Json.Serialization;
 
 namespace ApiEasyStay.Properties.Dtos.v1;
 
+public sealed class SyncRecoveryRequestDto
+{
+    [JsonPropertyName("espacoId")]
+    public Guid EspacoId { get; set; }
+    [JsonPropertyName("dispositivoId")]
+    public Guid DispositivoId { get; set; }
+    [JsonPropertyName("identificador")]
+    public string? Identificador { get; set; }
+    [JsonPropertyName("documentoEmpresa")]
+    public string? DocumentoEmpresa { get; set; }
+    [JsonPropertyName("nomeEmpresa")]
+    public string? NomeEmpresa { get; set; }
+}
+
 public sealed class SyncRegisterRequestDto
 {
     [JsonPropertyName("espacoId")]
@@ -83,6 +97,9 @@ public sealed class SyncBootstrapRequestDto
 
 public sealed class SyncPushEventDto
 {
+    [JsonPropertyName("versaoBase")]
+    public Guid? VersaoBase { get; set; }
+
     [JsonPropertyName("id")]
     public Guid Id { get; set; }
 
