@@ -22,6 +22,11 @@ Check(hash != Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("teste@
 Check(hash == security.HashCode("teste@example.test", "document", "123456"), "Hash instavel.");
 Check(hash != security.HashCode("teste@example.test", "outro", "123456"), "OTP nao vincula documento.");
 Check(security.TokenLifetime.TotalDays == 90, "Validade do token inesperada.");
+var passwordHash = SyncPasswordHasher.Hash("senhaDeTeste123");
+Check(passwordHash.StartsWith("pbkdf2_sha256$600000$"), "Formato da senha incorreto.");
+Check(SyncPasswordHasher.Verify("senhaDeTeste123", passwordHash), "Senha correta rejeitada.");
+Check(!SyncPasswordHasher.Verify("senhaErrada", passwordHash), "Senha incorreta aceita.");
+Check(!SyncPasswordHasher.Verify("senhaDeTeste123", "texto-simples"), "Senha sem hash aceita.");
 var unavailable = new AuthCodeSender(Config(), production, NullLogger<AuthCodeSender>.Instance);
 try { await unavailable.SendAsync("teste@example.test", "123456", default); throw new Exception("Producao simulou envio."); }
 catch (InvalidOperationException) { }

@@ -137,6 +137,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<EspacoSincronizacaoEntity>(entity =>
         {
             entity.Property(x => x.ChaveHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.SenhaCriacaoHash).HasMaxLength(120);
             entity.Property(x => x.IdentificadorHash).HasMaxLength(64);
             entity.Property(x => x.DocumentoEmpresaHash).HasMaxLength(64);
             entity.Property(x => x.Nome).HasMaxLength(160);

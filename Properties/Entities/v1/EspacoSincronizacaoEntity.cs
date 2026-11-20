@@ -6,6 +6,8 @@ public sealed class EspacoSincronizacaoEntity : BaseEntity
 {
     public string ChaveHash { get; set; } = string.Empty;
 
+    public string? SenhaCriacaoHash { get; set; }
+
     public string? IdentificadorHash { get; set; }
 
     public string? DocumentoEmpresaHash { get; set; }

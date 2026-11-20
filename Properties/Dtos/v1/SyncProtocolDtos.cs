@@ -59,6 +59,27 @@ public sealed class SyncAuthCodeVerifyDto
     public string? NomeEmpresa { get; set; }
 }
 
+public sealed class SyncPasswordAuthDto
+{
+    [JsonPropertyName("identificador")]
+    public string Identificador { get; set; } = string.Empty;
+
+    [JsonPropertyName("senha")]
+    public string Senha { get; set; } = string.Empty;
+
+    [JsonPropertyName("documentoEmpresa")]
+    public string? DocumentoEmpresa { get; set; }
+
+    [JsonPropertyName("dispositivoId")]
+    public Guid DispositivoId { get; set; }
+
+    [JsonPropertyName("nomeDispositivo")]
+    public string? NomeDispositivo { get; set; }
+
+    [JsonPropertyName("nomeEmpresa")]
+    public string? NomeEmpresa { get; set; }
+}
+
 public sealed class SyncCompanyDocumentCheckDto
 {
     [JsonPropertyName("documentoEmpresa")]

@@ -319,6 +319,11 @@ namespace ApiEasyStay.Properties.Data.Migrations
                         .HasColumnType("character varying(160)")
                         .HasColumnName("nome");
 
+                    b.Property<string>("SenhaCriacaoHash")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("senha_criacao_hash");
+
                     b.HasKey("Id")
                         .HasName("pk_espacos_sincronizacao");
 

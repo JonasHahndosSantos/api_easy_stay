@@ -118,6 +118,39 @@ try {
         throw 'A API aceitou um CPF inválido.'
     }
 
+    $passwordDocument = New-TestCpf
+    $passwordEmail = "senha-$([guid]::NewGuid().ToString('N'))@example.test"
+    $passwordRequest = @{
+        identificador = $passwordEmail
+        senha = 'senhaDeTeste123'
+        documentoEmpresa = $passwordDocument
+        dispositivoId = $device
+        nomeDispositivo = 'primeiro-dispositivo-senha'
+        nomeEmpresa = 'Pousada senha'
+    }
+    $passwordAuth = Invoke-RestMethod -Method Post -Uri "$base/auth/password" `
+        -ContentType 'application/json' -Body ($passwordRequest | ConvertTo-Json)
+    if ([guid]$passwordAuth.espacoId -eq [guid]::Empty -or
+        [string]::IsNullOrWhiteSpace($passwordAuth.accessKey)) {
+        throw 'A senha não criou a pousada e o acesso do primeiro dispositivo.'
+    }
+    $passwordRequest.senha = 'senhaIncorreta'
+    $wrongPassword = Invoke-WebRequest -Method Post -Uri "$base/auth/password" `
+        -ContentType 'application/json' -Body ($passwordRequest | ConvertTo-Json) -SkipHttpErrorCheck
+    if ($wrongPassword.StatusCode -ne 401) { throw 'A API aceitou uma senha incorreta.' }
+    $passwordRequest.senha = 'senhaDeTeste123'
+    $passwordRequest.dispositivoId = $secondDevice
+    $secondPasswordAuth = Invoke-RestMethod -Method Post -Uri "$base/auth/password" `
+        -ContentType 'application/json' -Body ($passwordRequest | ConvertTo-Json)
+    if ($secondPasswordAuth.espacoId -ne $passwordAuth.espacoId -or
+        $secondPasswordAuth.accessKey -eq $passwordAuth.accessKey) {
+        throw 'O segundo dispositivo não recebeu acesso próprio à mesma pousada.'
+    }
+    $passwordRequest.identificador = 'intruso-' + $passwordEmail
+    $wrongContact = Invoke-WebRequest -Method Post -Uri "$base/auth/password" `
+        -ContentType 'application/json' -Body ($passwordRequest | ConvertTo-Json) -SkipHttpErrorCheck
+    if ($wrongContact.StatusCode -ne 401) { throw 'Outro e-mail assumiu a pousada existente.' }
+
     $authRequest = @{
         identificador = $authEmail
         documentoEmpresa = $cpf

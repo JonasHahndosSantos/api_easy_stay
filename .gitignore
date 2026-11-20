@@ -4,3 +4,6 @@ obj/
 *.user
 test-output/
 appsettings.Local.json
+
+# Configuracoes locais do Rider/IntelliJ
+.idea/

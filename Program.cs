@@ -64,6 +64,13 @@ builder.Services.AddRateLimiter(options =>
             PermitLimit = 180, Window = TimeSpan.FromMinutes(1), QueueLimit = 0,
             AutoReplenishment = true
         }));
+    options.AddPolicy("sync-auth", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0,
+            AutoReplenishment = true
+        }));
 });
 builder.Services.AddSingleton<SyncSecurity>();
 builder.Services.AddSingleton<MicrosoftGraphMailSender>(services => new MicrosoftGraphMailSender(services.GetRequiredService<IConfiguration>(), new HttpClient()));
