@@ -65,6 +65,8 @@ public sealed partial class SyncController
                 ? await LoadReservationState(request.EspacoId, cancellationToken) : new Dictionary<Guid, SincronizacaoEntity>();
             var customerState = request.Eventos.Any(x => string.Equals(x.Entidade, "clientes", StringComparison.OrdinalIgnoreCase))
                 ? await LoadCustomerState(request.EspacoId, cancellationToken) : new Dictionary<Guid, SincronizacaoEntity>();
+            var roomState = request.Eventos.Any(x => string.Equals(x.Entidade, "quartos", StringComparison.OrdinalIgnoreCase))
+                ? await LoadEntityState(request.EspacoId, "quartos", cancellationToken) : new Dictionary<Guid, SincronizacaoEntity>();
             var userState = request.Eventos.Any(x => string.Equals(x.Entidade, "usuarios", StringComparison.OrdinalIgnoreCase))
                 ? await LoadEntityState(request.EspacoId, "usuarios", cancellationToken) : new Dictionary<Guid, SincronizacaoEntity>();
             var latestTimestamp = await _context.Sincronizacoes
@@ -226,6 +228,17 @@ public sealed partial class SyncController
                     }
                 }
 
+                if (entityName == "quartos" && operation != "excluir")
+                {
+                    var conflict = FindRoomNameConflict(incoming, roomState.Values);
+                    if (conflict is not null)
+                    {
+                        response.Conflitos.Add(conflict);
+                        if (request.Atomico) { response.EventosAceitos.Clear(); return Ok(response); }
+                        continue;
+                    }
+                }
+
                 var serverTime = timestamp.AddTicks(tick++ * 10);
                 var sync = new SincronizacaoEntity
                 {
@@ -269,6 +282,11 @@ public sealed partial class SyncController
                     {
                         customerState[incoming.EntidadeId.Value] = sync;
                     }
+                }
+                if (entityName == "quartos" && incoming.EntidadeId.HasValue)
+                {
+                    if (operation == "excluir") roomState.Remove(incoming.EntidadeId.Value);
+                    else roomState[incoming.EntidadeId.Value] = sync;
                 }
                 if (entityName == "usuarios") userState[incoming.EntidadeId!.Value] = sync;
             }

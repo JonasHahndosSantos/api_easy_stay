@@ -603,6 +603,35 @@ public sealed partial class SyncController : ControllerBase
         return null;
     }
 
+    private static SyncConflictDto? FindRoomNameConflict(
+        SyncPushEventDto incoming,
+        IEnumerable<SincronizacaoEntity> currentRooms)
+    {
+        if (!TryGetString(incoming.Dados, "nome", out var rawName)) return null;
+        var name = rawName.Trim();
+        if (name.Length == 0) return null;
+
+        foreach (var current in currentRooms)
+        {
+            if (current.EntidadeId == incoming.EntidadeId ||
+                current.Operacao == "excluir" || string.IsNullOrWhiteSpace(current.Dados)) continue;
+            using var document = JsonDocument.Parse(current.Dados);
+            if (!TryGetString(document.RootElement, "nome", out var remoteName) ||
+                !string.Equals(name, remoteName.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
+            return new SyncConflictDto
+            {
+                FilaId = incoming.Id,
+                Entidade = "quartos",
+                EntidadeId = incoming.EntidadeId,
+                Tipo = "quarto_nome_duplicado",
+                Mensagem = "Já existe um quarto com este nome nesta hospedagem.",
+                DadosLocais = incoming.Dados.Clone(),
+                DadosRemotos = document.RootElement.Clone()
+            };
+        }
+        return null;
+    }
+
     private static ReservationSnapshot? ParseReservation(
         JsonElement data,
         Guid? id,
