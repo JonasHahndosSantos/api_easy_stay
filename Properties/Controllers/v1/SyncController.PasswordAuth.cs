@@ -20,7 +20,7 @@ public sealed partial class SyncController
     {
         var identifier = NormalizeIdentifier(request.Identificador);
         var password = request.Senha ?? string.Empty;
-        if (!IsValidIdentifier(identifier) || password.Length is < 6 or > 256 ||
+        if (!IsValidIdentifier(identifier) || password.Length is < 1 or > 256 ||
             Encoding.UTF8.GetByteCount(password) > 1024 || request.DispositivoId == Guid.Empty)
             return BadRequest(new { message = "Informe um e-mail, uma senha e um dispositivo válidos." });
 
@@ -37,6 +37,7 @@ public sealed partial class SyncController
             .FirstOrDefaultAsync(x => documentHash == null
                 ? x.IdentificadorHash == identifierHash
                 : x.DocumentoEmpresaHash == documentHash, cancellationToken);
+        SyncedUser? authenticatedUser = null;
         if (workspace is null)
         {
             if (documentHash is null || await _context.EspacosSincronizacao.IgnoreQueryFilters()
@@ -53,7 +54,7 @@ public sealed partial class SyncController
                 workspace.IdentificadorHash != identifierHash)
                 return Unauthorized(new { message = "E-mail ou senha inválidos." });
 
-            var user = await FindSyncedUserAsync(workspace.Id, identifier, cancellationToken);
+            var user = await FindVerifiedAdminByPasswordAsync(workspace.Id, password, cancellationToken);
             if (user is not null)
             {
                 var state = await _context.SyncEntityStates.AsNoTracking().FirstOrDefaultAsync(
@@ -65,6 +66,7 @@ public sealed partial class SyncController
                     !SyncPasswordHasher.Verify(password, storedPassword))
                     return Unauthorized(new { message = "E-mail ou senha inválidos." });
                 workspace.SenhaCriacaoHash = storedPassword;
+                authenticatedUser = user;
             }
             else
             {
@@ -96,7 +98,6 @@ public sealed partial class SyncController
         await _context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        var syncedUser = await FindSyncedUserAsync(workspace.Id, identifier, cancellationToken);
         return Ok(new
         {
             espacoId = workspace.Id,
@@ -106,9 +107,9 @@ public sealed partial class SyncController
             syncToken = accessKey,
             accessKey,
             expiresAt = now.Add(_security.TokenLifetime),
-            userId = syncedUser?.UserId,
-            userEmail = syncedUser?.Email,
-            email = syncedUser?.Email
+            userId = authenticatedUser?.UserId,
+            userEmail = authenticatedUser?.Email,
+            email = authenticatedUser?.Email
         });
     }
 }

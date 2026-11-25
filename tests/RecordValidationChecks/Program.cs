@@ -29,4 +29,11 @@ foreach (var invalid in new[] { Data(new { nome = "Suite", capacidade = -5, stat
     if (await SyncRecordValidator.ValidateAsync("quartos", invalid, (_, _) => Task.FromResult(true)) is null)
         throw new Exception("Quarto invalido aceito");
 }
+var sampleHash = $"pbkdf2_sha256$600000${new string('A', 22)}${new string('B', 43)}";
+var userWithoutEmail = Data(new { nome = "Recepcao", senha = sampleHash, perfilId = Guid.NewGuid() });
+if (await SyncRecordValidator.ValidateAsync("usuarios", userWithoutEmail, (_, _) => Task.FromResult(true)) is not null)
+    throw new Exception("Usuario sem e-mail valido rejeitado");
+var userWithInvalidEmail = Data(new { nome = "Recepcao", email = "invalido", senha = sampleHash, perfilId = Guid.NewGuid() });
+if (await SyncRecordValidator.ValidateAsync("usuarios", userWithInvalidEmail, (_, _) => Task.FromResult(true)) is null)
+    throw new Exception("E-mail invalido aceito");
 Console.WriteLine("OK: validacao de hospedes, capacidade, manutencao, cancelamento, adiantamento, dependencias e status.");

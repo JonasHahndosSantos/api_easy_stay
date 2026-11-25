@@ -18,8 +18,9 @@ internal static partial class SyncRecordValidator
         if (entity == "usuarios")
         {
             var email = Text(data, "email");
-            if (email.Length > 254 || !MailAddress.TryCreate(email, out var address) || address.Address != email)
-                return "O usuario precisa de um e-mail valido.";
+            if (!string.IsNullOrWhiteSpace(email) &&
+                (email.Length > 254 || !MailAddress.TryCreate(email, out var address) || address.Address != email))
+                return "O e-mail do usuario e invalido.";
             if (!PasswordHash().IsMatch(Text(data, "senha")))
                 return "A senha do usuario deve estar protegida antes de ser enviada. Atualize o app e redefina a senha.";
         }

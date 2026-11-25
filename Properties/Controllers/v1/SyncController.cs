@@ -443,6 +443,48 @@ public sealed partial class SyncController : ControllerBase
         return null;
     }
 
+    private async Task<SyncedUser?> FindVerifiedAdminByPasswordAsync(
+        Guid workspaceId, string password, CancellationToken cancellationToken)
+    {
+        var profiles = await _context.SyncEntityStates.AsNoTracking()
+            .Where(x => x.EspacoId == workspaceId && x.Entidade == "perfis" && !x.Excluido)
+            .ToListAsync(cancellationToken);
+        var adminRoleIds = new HashSet<Guid>();
+        foreach (var profile in profiles)
+        {
+            using var data = JsonDocument.Parse(profile.Dados);
+            if (!HasNonNullProperty(data.RootElement, "DataHoraDeletado") &&
+                TryGetInt(data.RootElement, "perfilInterno", out var internalRole) && internalRole == 1 &&
+                TryGetString(data.RootElement, "nome", out var name) &&
+                string.Equals(name, "Admin", StringComparison.OrdinalIgnoreCase))
+                adminRoleIds.Add(profile.EntidadeId);
+        }
+        if (adminRoleIds.Count == 0) return null;
+
+        var users = await _context.SyncEntityStates.AsNoTracking()
+            .Where(x => x.EspacoId == workspaceId && x.Entidade == "usuarios" && !x.Excluido)
+            .ToListAsync(cancellationToken);
+        foreach (var user in users)
+        {
+            using var data = JsonDocument.Parse(user.Dados);
+            var record = data.RootElement;
+            if (HasNonNullProperty(record, "DataHoraDeletado") ||
+                TryGetProperty(record, "ativo", out var activeValue) && activeValue.ValueKind == JsonValueKind.False ||
+                TryGetInt(record, "ativo", out var active) && active == 0 ||
+                !TryGetString(record, "perfilId", out var roleId) ||
+                !Guid.TryParse(roleId, out var parsedRoleId) || !adminRoleIds.Contains(parsedRoleId) ||
+                !TryGetString(record, "senha", out var storedPassword))
+                continue;
+
+            if (SyncPasswordHasher.Verify(password, storedPassword))
+            {
+                TryGetString(record, "email", out var email);
+                return new SyncedUser(user.EntidadeId, string.IsNullOrWhiteSpace(email) ? null : email.Trim());
+            }
+        }
+        return null;
+    }
+
     private static bool HasNonNullProperty(JsonElement element, string name) =>
         element.TryGetProperty(name, out var property) &&
         property.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined;

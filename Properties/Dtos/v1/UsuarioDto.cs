@@ -9,10 +9,9 @@ public class UsuarioDto : BaseDto
     [JsonPropertyName("nome")]
     public string Nome { get; set; } = string.Empty;
     
-    [Required]
     [EmailAddress]
     [JsonPropertyName("email")]
-    public string Email { get; set; } = string.Empty;
+    public string? Email { get; set; }
     
     [Required]
     [JsonPropertyName("senha")]

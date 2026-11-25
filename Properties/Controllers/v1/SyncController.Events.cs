@@ -160,7 +160,7 @@ public sealed partial class SyncController
                 if (entityName == "usuarios" && operation != "excluir" && !SyncPayload.IsDeleted(incoming.Dados.GetRawText()))
                 {
                     TryGetString(incoming.Dados, "email", out var email);
-                    var duplicate = userState.Values.FirstOrDefault(state => state.EntidadeId != incoming.EntidadeId &&
+                    var duplicate = string.IsNullOrWhiteSpace(email) ? null : userState.Values.FirstOrDefault(state => state.EntidadeId != incoming.EntidadeId &&
                         state.Operacao != "excluir" && string.Equals(
                             ReadUserEmail(state.Dados!), email.Trim(), StringComparison.OrdinalIgnoreCase));
                     if (duplicate is not null)

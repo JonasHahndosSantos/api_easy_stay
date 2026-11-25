@@ -138,6 +138,10 @@ try {
     $wrongPassword = Invoke-WebRequest -Method Post -Uri "$base/auth/password" `
         -ContentType 'application/json' -Body ($passwordRequest | ConvertTo-Json) -SkipHttpErrorCheck
     if ($wrongPassword.StatusCode -ne 401) { throw 'A API aceitou uma senha incorreta.' }
+    $passwordRequest.senha = 'x'
+    $shortPassword = Invoke-WebRequest -Method Post -Uri "$base/auth/password" `
+        -ContentType 'application/json' -Body ($passwordRequest | ConvertTo-Json) -SkipHttpErrorCheck
+    if ($shortPassword.StatusCode -ne 401) { throw 'A API rejeitou a senha curta antes de autenticá-la.' }
     $passwordRequest.senha = 'senhaDeTeste123'
     $passwordRequest.dispositivoId = $secondDevice
     $secondPasswordAuth = Invoke-RestMethod -Method Post -Uri "$base/auth/password" `
